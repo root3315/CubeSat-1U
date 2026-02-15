@@ -1,0 +1,36 @@
+name: STM32 Firmware CI
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Set up ARM GCC
+      uses: carlosperate/arm-none-eabi-gcc-action@v1
+      with:
+        release: '10.3-2021.10'
+    
+    - name: Install STM32CubeMX
+      run: |
+        # Install STM32CubeMX dependencies
+        sudo apt-get update
+        sudo apt-get install -y libgtk2.0-0 libgtk-3-0 libgbm-dev libasound2-dev libnss3-dev libxss1 libnspr4 libatk-bridge2.0-0 libdrm2 libxrandr2 libxkbcommon0 libatspi-dev libxdamage1 libxcomposite1 libxslt1.1 libgconf-2-4 libxss1 libxtst6 libgtk-3-0 libgdk-pixbuf2.0-0 libpango-1.0-0 libcairo-gobject2 libepoxy0 libsecret-1-0 libcups2-dev libx11-xcb1 libxcb-dri3-0 libxcb-present0 libxcb-sync1 libxcb-xfixes0 libxcb-shape0 libxcb-randr0 libxcb-image0 libxcb-keysyms1 libxcb-util1 libxcb-render0 libxcb-render-util0 libxcb-xinerama0 libxcb-xinput0 libxcb-xkb1
+        # Download and install STM32CubeMX
+        wget https://www.st.com/content/ccc/resource/technical/software/sw_development_suite/stm32cubeide/stm32cube_fw_linux.zip/files/stm32cube_fw_linux.zip/jcr:content/translations/en.stm32cube_fw_linux.zip -O stm32cubemx.zip
+        unzip stm32cubemx.zip
+        # Install silently
+        java -jar stm32cubemx*.jar -q -overwrite
+        rm stm32cubemx*.zip
+        
+    - name: Build STM32 Firmware
+      run: |
+        cd stm32-firmware
+        make

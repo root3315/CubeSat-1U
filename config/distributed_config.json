@@ -1,0 +1,53 @@
+{
+  "distributed_system": {
+    "enabled": false,
+    "nodes": [
+      {
+        "node_type": "telemetry_processor",
+        "host": "localhost",
+        "port": 8001,
+        "replicas": 1,
+        "health_check_interval": 30
+      },
+      {
+        "node_type": "command_dispatcher",
+        "host": "localhost",
+        "port": 8002,
+        "replicas": 1,
+        "health_check_interval": 30
+      },
+      {
+        "node_type": "data_storage",
+        "host": "localhost",
+        "port": 8003,
+        "replicas": 1,
+        "health_check_interval": 30
+      }
+    ],
+    "satellites": [
+      {
+        "satellite_id": "CS1-OVERRIDE",
+        "host": "localhost",
+        "port": 8005,
+        "telemetry_interval": 10,
+        "status": "active"
+      }
+    ],
+    "communication": {
+      "protocol": "simple",
+      "timeout": 10,
+      "retries": 1,
+      "backoff_factor": 1.0
+    },
+    "monitoring": {
+      "metrics_collection": false,
+      "logging_level": "WARNING",
+      "alert_thresholds": {
+        "cpu_usage": 90,
+        "memory_usage": 90,
+        "disk_usage": 95,
+        "response_time_ms": 2000
+      }
+    }
+  }
+}

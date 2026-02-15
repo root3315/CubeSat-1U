@@ -1,0 +1,81 @@
+{
+    "satellite": {
+        "name": "CubeSat-1U",
+        "mission_id": "CS1-2025",
+        "callsign": "CS1"
+    },
+    "camera": {
+        "resolution": [
+            1640,
+            1232
+        ],
+        "capture_interval": 1200,
+        "compression_quality": 80,
+        "svd_components": 25
+    },
+    "storage": {
+        "base_path": "/media/sdcard",
+        "max_images": 200,
+        "max_telemetry_files": 500,
+        "min_free_space_gb": 0.2
+    },
+    "communication": {
+        "stm32_port": "/dev/ttyS0",
+        "baudrate": 115200,
+        "radio_port": "/dev/ttyUSB0",
+        "radio_baudrate": 9600,
+        "beacon_interval": 60,
+        "udp_port": 5000,
+        "ground_station_ip": "192.168.1.100"
+    },
+    "security": {
+        "shared_secret": "JDZs38pT0ickT703EbHTSvAuQpJG7KHevNu_C7Rs1Cc",
+        "require_auth": true,
+        "enable_signing": true,
+        "ssl_enabled": false,
+        "cert_file": "./certs/server.crt",
+        "key_file": "./certs/server.key"
+    },
+    "logging": {
+        "log_directory": "./logs",
+        "console_output": false,
+        "file_rotation_mb": 5,
+        "backup_count": 3
+    },
+    "monitoring": {
+        "cpu_threshold": 85.0,
+        "memory_threshold": 90.0,
+        "disk_threshold": 95.0,
+        "temp_threshold": 75.0,
+        "battery_min": 3.4,
+        "battery_max": 4.2,
+        "check_interval": 60
+    },
+    "power_management": {
+        "low_power_mode_enabled": true,
+        "low_battery_threshold": 3.6,
+        "power_save_intervals": {
+            "normal": 60,
+            "low_battery": 300,
+            "critical_battery": 600
+        },
+        "sensor_sampling_rate": {
+            "normal": 10,
+            "low_battery": 30,
+            "critical_battery": 60
+        }
+    },
+    "ota": {
+        "server_url": "https://updates.cubesat.example.com",
+        "update_directory": "./updates",
+        "backup_directory": "./backups",
+        "current_version": "1.0.0",
+        "auto_check_interval": 172800,
+        "allow_beta_updates": false
+    },
+    "gpio": {
+        "stm32_wake": 17,
+        "pi_ready": 27,
+        "led_status": 22
+    }
+}

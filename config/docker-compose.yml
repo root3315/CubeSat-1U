@@ -1,0 +1,104 @@
+version: '3.8'
+
+services:
+  # CubeSat Raspberry Pi Simulator Service
+  cubesat-pi:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: cubesat-pi
+    volumes:
+      - ./config.json:/app/config.json
+      - ./logs:/app/logs
+      - ./data:/app/data
+      - ./images:/app/images
+      - ./telemetry:/app/telemetry
+      - ./updates:/app/updates
+      - ./backups:/app/backups
+    environment:
+      - PYTHONPATH=/app
+      - LOG_LEVEL=INFO
+    networks:
+      - cubesat-network
+    restart: unless-stopped
+    ports:
+      - "5000:5000/udp"  # For communication with ground station
+    privileged: true  # Required for GPIO access (in real deployment)
+    devices:
+      - "/dev:/dev"  # Access to hardware devices
+
+  # Ground Station Service
+  ground-station:
+    build:
+      context: .
+      dockerfile: Dockerfile.ground
+    container_name: cubesat-ground-station
+    volumes:
+      - ./config.json:/app/config.json
+      - ./ground_config.json:/app/ground_config.json
+      - ./logs:/app/logs
+    environment:
+      - STREAMLIT_SERVER_ENABLE_CORS=false
+      - STREAMLIT_SERVER_ENABLE_XSRF_PROTECTION=false
+    networks:
+      - cubesat-network
+    ports:
+      - "8501:8501"  # Streamlit web interface
+    depends_on:
+      - cubesat-pi
+    restart: unless-stopped
+
+  # MQTT Broker for advanced communication (optional)
+  mqtt-broker:
+    image: eclipse-mosquitto:latest
+    container_name: cubesat-mqtt-broker
+    ports:
+      - "1883:1883"
+      - "9001:9001"
+    volumes:
+      - ./mosquitto/config:/mosquitto/config
+      - ./mosquitto/data:/mosquitto/data
+      - ./mosquitto/log:/mosquitto/log
+    networks:
+      - cubesat-network
+    restart: unless-stopped
+
+  # InfluxDB for telemetry storage (optional)
+  influxdb:
+    image: influxdb:2.7
+    container_name: cubesat-influxdb
+    environment:
+      - DOCKER_INFLUXDB_INIT_MODE=setup
+      - DOCKER_INFLUXDB_INIT_USERNAME=admin
+      - DOCKER_INFLUXDB_INIT_PASSWORD=supersecretpassword
+      - DOCKER_INFLUXDB_INIT_ORG=CubeSat
+      - DOCKER_INFLUXDB_INIT_BUCKET=telemetry
+    ports:
+      - "8086:8086"
+    volumes:
+      - influxdb2_data:/var/lib/influxdb2
+    networks:
+      - cubesat-network
+    restart: unless-stopped
+
+  # Grafana for telemetry visualization (optional)
+  grafana:
+    image: grafana/grafana-enterprise
+    container_name: cubesat-grafana
+    volumes:
+      - grafana_data:/var/lib/grafana
+    ports:
+      - "3000:3000"
+    networks:
+      - cubesat-network
+    depends_on:
+      - influxdb
+    restart: unless-stopped
+
+networks:
+  cubesat-network:
+    driver: bridge
+
+volumes:
+  influxdb2_data:
+  grafana_data:

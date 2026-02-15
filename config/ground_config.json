@@ -1,0 +1,34 @@
+{
+    "station": {
+        "name": "Mission Control",
+        "callsign": "GS1",
+        "location": "Ground Station"
+    },
+    "communication": {
+        "udp_port": 5001,
+        "ssl_port": 5002,
+        "satellite_host": "localhost",
+        "satellite_port": 5000,
+        "command_timeout": 10.0,
+        "max_retries": 3,
+        "beacon_interval": 30
+    },
+    "security": {
+        "ssl_enabled": true,
+        "cert_file": "./certs/client.crt",
+        "key_file": "./certs/client.key",
+        "ca_cert_file": "./certs/ca.crt"
+    },
+    "storage": {
+        "save_telemetry": true,
+        "save_images": true,
+        "telemetry_path": "./telemetry",
+        "images_path": "./images",
+        "auto_export": true
+    },
+    "display": {
+        "update_interval": 100,
+        "max_plot_points": 1000,
+        "theme": "default"
+    }
+}
