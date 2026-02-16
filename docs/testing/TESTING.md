@@ -1,264 +1,311 @@
-# Тестирование CubeSat 1U системы
+# Документация по тестированию CubeSat 1U системы
 
 ## Обзор
 
-CubeSat 1U система включает несколько уровней тестирования:
-- Unit-тесты для отдельных компонентов
-- Интеграционные тесты для взаимодействия компонентов
-- Тесты производительности
-- Тесты безопасности
-- Тесты в режиме симуляции
+CubeSat 1U система включает упрощенную, но эффективную систему тестирования, оптимизированную для ресурсоограниченной среды. Абсолютность тестирования заключается в её способности проверять критические функции без чрезмерного потребления ресурсов.
 
-## Структура тестов
+## Архитектура тестирования
+
+### Структура тестов
 
 ```
 tests/
-├── simple_test_suite.py      # Упрощенный набор тестов
-├── test_communication_simulated.py  # Тесты связи в симуляции
-├── run_all_tests_simulated.py      # Запуск всех тестов в симуляции
-├── comprehensive_test_suite.py     # Расширенный набор тестов
-├── load_test_suite.py              # Тесты нагрузки
-├── unit/                         # Unit-тесты
-│   ├── test_main.py
-│   └── test_detailed.py
-└── launch.json                   # Конфигурация запуска тестов
+├── simple_test_suite.py              # Упрощенный набор тестов
+├── test_communication_simulated.py   # Тесты связи в симуляции
+├── run_all_tests_simulated.py       # Запуск всех тестов в симуляции
+├── unit/                           # Модульные тесты
+│   ├── test_main.py                # Основные модульные тесты
+│   └── test_detailed.py            # Подробные модульные тесты
+├── integration/                    # Интеграционные тесты
+│   ├── test_communication.py       # Тесты взаимодействия компонентов
+│   └── test_end_to_end.py          # Тесты сквозного взаимодействия
+├── performance/                    # Тесты производительности
+│   └── test_performance.py         # Тесты производительности
+└── conftest.py                     # Конфигурация pytest
 ```
 
-## Unit-тесты
+## Типы тестов
 
-### Тестирование безопасности
+### 1. Модульные тесты
+
+Модульные тесты проверяют отдельные компоненты системы:
+
+#### test_main.py
+- Тесты контроллера полета
+- Тесты безопасности
+- Тесты обработки телеметрии
+- Тесты связи
+
+#### test_detailed.py
+- Подробные тесты критических функций
+- Граничные условия
+- Обработка ошибок
+
+### 2. Интеграционные тесты
+
+Интеграционные тесты проверяют взаимодействие между компонентами:
+
+#### test_communication.py
+- Тесты взаимодействия между компонентами
+- Проверка протоколов связи
+- Тесты обработки команд
+
+#### test_end_to_end.py
+- Сквозные тесты сценариев использования
+- Тесты полного цикла обработки данных
+
+### 3. Тесты производительности
+
+Тесты производительности проверяют эффективность системы:
+
+#### test_performance.py
+- Тесты производительности обработки данных
+- Тесты потребления ресурсов
+- Тесты скорости ответа
+
+## Упрощенные тесты
+
+### simple_test_suite.py
+
+Основной упрощенный набор тестов, оптимизированный для ресурсоограниченной среды:
+
 ```python
-def test_signature_generation():
-    """Проверка генерации подписей"""
-    data = {"command": "test", "value": 123}
-    security = SecurityManager(shared_secret="test_secret")
-    signature = security.create_signature(json.dumps(data).encode())
-    
-    # Подпись должна быть 64 символа (SHA256)
-    assert len(signature) == 64
+"""
+Упрощенный набор тестов для CubeSat 1U системы
+Оптимизирован для ресурсоограниченной среды
+"""
+import unittest
+import json
+import time
+from unittest.mock import Mock, patch, MagicMock
 
-def test_signature_verification():
-    """Проверка валидации подписей"""
-    data = {"command": "test", "value": 123}
-    data_bytes = json.dumps(data).encode()
-    security = SecurityManager(shared_secret="test_secret")
-    
-    signature = security.create_signature(data_bytes)
-    is_valid = security.verify_signature(data_bytes, signature)
-    
-    assert is_valid == True
+# Импорт модулей для тестирования
+from raspberry_pi_code.security import SecurityManager, create_secure_command, validate_secure_command
+from raspberry_pi_code.communication import CommunicationHandler
+from raspberry_pi_code.telemetry_handler import TelemetryHandler
 
-def test_nonce_replay_protection():
-    """Проверка защиты от повторного использования nonce"""
-    security = SecurityManager(shared_secret="replay_test")
-    command = {"type": "TEST", "value": 123}
-    secure_cmd = create_secure_command(1, command, security)
-    
-    # Первая валидация должна пройти
-    is_valid1, msg1 = validate_secure_command(secure_cmd, security)
-    assert is_valid1 == True
-    
-    # Вторая валидация с тем же nonce должна провалиться
-    is_valid2, msg2 = validate_secure_command(secure_cmd, security)
-    assert is_valid2 == False
+
+class TestSecurityModule(unittest.TestCase):
+    """Тесты модуля безопасности"""
+
+    def setUp(self):
+        self.security = SecurityManager(shared_secret="test_secret")
+
+    def test_signature_generation(self):
+        """Тест генерации подписей"""
+        data = {"command": "test", "value": 123}
+        data_bytes = json.dumps(data, sort_keys=True).encode()
+        signature = self.security.create_signature(data_bytes)
+
+        # Подпись должна быть 64 символа (SHA256)
+        self.assertEqual(len(signature), 64)
+        self.assertIsInstance(signature, str)
+
+    def test_signature_verification(self):
+        """Тест проверки подписей"""
+        data = {"command": "test", "value": 123}
+        data_bytes = json.dumps(data, sort_keys=True).encode()
+        signature = self.security.create_signature(data_bytes)
+
+        is_valid = self.security.verify_signature(data_bytes, signature)
+        self.assertTrue(is_valid)
+
+    def test_signature_invalid_data(self):
+        """Тест проверки подписей с неверными данными"""
+        data = {"command": "test", "value": 123}
+        wrong_data = {"command": "different", "value": 456}
+
+        data_bytes = json.dumps(data, sort_keys=True).encode()
+        wrong_data_bytes = json.dumps(wrong_data, sort_keys=True).encode()
+        signature = self.security.create_signature(data_bytes)
+
+        is_valid = self.security.verify_signature(wrong_data_bytes, signature)
+        self.assertFalse(is_valid)
+
+    def test_nonce_handling(self):
+        """Тест обработки одноразовых чисел (nonce)"""
+        nonce = self.security.generate_nonce()
+
+        # Проверка, что nonce не используется повторно
+        self.assertFalse(self.security.is_nonce_valid(nonce))
+        
+        # Регистрация nonce
+        self.security.register_nonce(nonce)
+        
+        # Повторное использование должно быть отклонено
+        self.assertFalse(self.security.is_nonce_valid(nonce))
 ```
 
-### Тестирование телеметрии
+### test_communication_simulated.py
+
+Тесты связи в симуляции без использования реального оборудования:
+
 ```python
-def test_telemetry_processing_performance():
-    """Тест производительности обработки телеметрии"""
-    import time
-    from telemetry_handler import TelemetryHandler
+"""
+Тесты связи в симуляции для CubeSat 1U системы
+Тесты работают без реального оборудования
+"""
+import unittest
+import json
+import time
+from unittest.mock import Mock, patch, MagicMock
 
-    config = {"storage": {"base_path": "/tmp"}}
-    handler = TelemetryHandler(config)
+from raspberry_pi_code.communication import CommunicationHandler
 
-    # Генерация тестовых данных
-    telemetry_data = []
-    for i in range(100):
-        data = {
-            "timestamp": time.time(),
-            "sequence": i,
-            "temperature_bme": 20 + (i % 5),
-            "pressure": 1013 + (i % 10),
-            "humidity": 45 + (i % 15),
-            "battery_voltage": 3.8 + (i % 2) * 0.1,
-            "battery_level": 90 + (i % 10),
-            "radiation_cps": 30 + (i % 20),
-            "mag_x": 0.25 + (i % 5) * 0.01,
-            "mag_y": -0.18 + (i % 5) * 0.01,
-            "mag_z": 0.45 + (i % 5) * 0.01
+
+class TestCommunicationSimulated(unittest.TestCase):
+    """Тесты связи в симуляции"""
+
+    def setUp(self):
+        # Конфигурация для симуляции
+        self.config = {
+            "communication": {
+                "stm32_port": "/dev/null",  # Используем null для симуляции
+                "baudrate": 115200,
+                "radio_port": "/dev/null",
+                "radio_baudrate": 9600,
+                "udp_port": 5000,
+                "ground_station_ip": "127.0.0.1"
+            },
+            "security": {
+                "shared_secret": "simulated_secret",
+                "require_auth": True,
+                "enable_signing": True
+            }
         }
-        telemetry_data.append(data)
+        
+        # Создаем обработчик связи с симуляцией
+        with patch('serial.Serial'):
+            self.comm = CommunicationHandler(self.config)
 
-    # Измерение времени обработки
-    start_time = time.time()
-    for data in telemetry_data:
-        handler.save_telemetry(data)
-    end_time = time.time()
+    def test_mock_serial_initialization(self):
+        """Тест инициализации симуляции последовательных портов"""
+        # Проверяем, что порты были "открыты" (на самом деле смоканы)
+        self.assertIsNotNone(self.comm)
+        self.assertTrue(hasattr(self.comm, 'stm32_serial'))
+        self.assertTrue(hasattr(self.comm, 'radio_serial'))
 
-    processing_time = end_time - start_time
-    assert processing_time < 2.0  # Обработка 100 пакетов за менее чем 2 секунды
-```
+    def test_command_parsing_simulation(self):
+        """Тест симуляции парсинга команд"""
+        # Тестовые данные команды
+        test_command = {
+            "type": "TELEMETRY_REQUEST",
+            "params": {"satellite": "TEST-001"},
+            "timestamp": time.time(),
+            "nonce": "test_nonce_12345"
+        }
 
-## Интеграционные тесты
+        # Сериализуем команду
+        command_json = json.dumps(test_command)
+        command_bytes = command_json.encode()
 
-### Тестирование полного цикла
-```python
-def test_end_to_end_workflow():
-    """Тест полного цикла работы системы"""
-    # Инициализация компонентов
-    security = SecurityManager(shared_secret="integration_test")
+        # В симуляции мы просто проверяем, что данные корректно обрабатываются
+        self.assertIsInstance(command_bytes, bytes)
+        self.assertGreater(len(command_bytes), 0)
 
-    # Создание и валидация безопасной команды
-    command = {"type": "TELEMETRY_REQUEST", "params": {"satellite": "TEST-001"}}
-    secure_cmd = create_secure_command(2, command, security)
+    def test_telemetry_parsing_simulation(self):
+        """Тест симуляции парсинга телеметрии"""
+        # Тестовые данные телеметрии
+        test_telemetry = {
+            "sequence": 12345,
+            "timestamp": time.time(),
+            "mag_x": 0.123,
+            "mag_y": -0.456,
+            "mag_z": 0.789,
+            "corrosion_raw": 1024,
+            "radiation_cps": 42,
+            "temperature_bme": 25.6,
+            "pressure": 1013.25,
+            "humidity": 45.2,
+            "battery_voltage": 3.78,
+            "battery_level": 85
+        }
 
-    is_valid, msg = validate_secure_command(secure_cmd, security)
-    assert is_valid == True, f"Валидация команды провалена: {msg}"
+        # Сериализуем телеметрию
+        telemetry_json = json.dumps(test_telemetry)
+        telemetry_bytes = telemetry_json.encode()
 
-    # Тест обработки телеметрии
-    from telemetry_handler import TelemetryHandler
-    config = {"storage": {"base_path": "/tmp"}}
-    telemetry_handler = TelemetryHandler(config)
-    
-    telemetry = {
-        "satellite_id": "TEST-001",
-        "temperature": 25.5,
-        "voltage": 3.75,
-        "signal_strength": -65
-    }
+        # Проверяем корректность данных
+        self.assertIsInstance(telemetry_bytes, bytes)
+        self.assertGreater(len(telemetry_bytes), 0)
 
-    # Сохранение телеметрии
-    success = telemetry_handler.save_telemetry(telemetry)
-    assert success == True, "Не удалось сохранить телеметрию"
-```
+        # Проверяем, что все ключевые поля присутствуют
+        parsed = json.loads(telemetry_json)
+        required_fields = [
+            'sequence', 'timestamp', 'mag_x', 'mag_y', 'mag_z',
+            'corrosion_raw', 'radiation_cps', 'temperature_bme',
+            'pressure', 'humidity', 'battery_voltage', 'battery_level'
+        ]
+        
+        for field in required_fields:
+            self.assertIn(field, parsed)
 
-## Тесты в режиме симуляции
+    def test_secure_command_simulation(self):
+        """Тест симуляции безопасных команд"""
+        from raspberry_pi_code.security import SecurityManager, create_secure_command, validate_secure_command
 
-Тесты в режиме симуляции позволяют проверить логику системы без реального оборудования:
+        # Создаем менеджер безопасности
+        security = SecurityManager(shared_secret="simulated_test_secret")
 
-```python
-def test_flight_controller_simulation():
-    """Тест контроллера полета в режиме симуляции"""
-    import sys
-    import os
-    
-    # Подмена GPIO для симуляции
-    class MockGPIO:
-        BCM = OUT = IN = HIGH = LOW = None
-        def setmode(self, *args): pass
-        def setup(self, *args): pass
-        def output(self, *args): pass
-        def cleanup(self): pass
+        # Создаем команду
+        command = {"type": "TEST_COMMAND", "value": 999}
+        secure_cmd = create_secure_command(1, command, security)
 
-    # Замена модуля
-    sys.modules['RPi.GPIO'] = MockGPIO()
+        # Проверяем, что команда содержит необходимые поля безопасности
+        self.assertIn('signature', secure_cmd)
+        self.assertIn('nonce', secure_cmd)
+        self.assertIn('timestamp', secure_cmd)
+        self.assertIn('command_id', secure_cmd)
 
-    # Импорт и тестирование
-    from flight_controller import CubeSatFlightController
-    controller = CubeSatFlightController()
-    
-    # Проверка инициализации
-    assert controller is not None
-    assert controller.state == 'BOOT'
-    
-    # Остановка контроллера
-    controller.shutdown()
-```
-
-## Тесты производительности
-
-### Тест загрузки CPU
-```python
-def test_cpu_load_under_normal_conditions():
-    """Тест загрузки CPU при нормальных условиях"""
-    import psutil
-    import time
-    
-    initial_cpu = psutil.cpu_percent(interval=1)
-    
-    # Выполнение типичных операций
-    for i in range(1000):
-        # Симуляция обработки данных
-        data = {"value": i, "timestamp": time.time()}
-        # Обработка данных
-        processed = {"processed_value": data["value"] * 2}
-    
-    final_cpu = psutil.cpu_percent(interval=1)
-    
-    # Загрузка CPU не должна превышать 80% при нормальных условиях
-    assert final_cpu < 80
+        # Валидируем команду
+        is_valid, msg = validate_secure_command(secure_cmd, security)
+        self.assertTrue(is_valid, f"Команда не прошла валидацию: {msg}")
 ```
 
 ## Запуск тестов
 
 ### Запуск всех тестов
+
+```bash
+# Запуск всех тестов в симуляции
+python3 tests/run_all_tests_simulated.py
+
+# Запуск с помощью unittest
+python3 -m unittest discover tests/ -v
+
+# Запуск с помощью pytest
+python3 -m pytest tests/ -v
+```
+
+### Запуск конкретных тестов
+
 ```bash
 # Запуск упрощенного набора тестов
 python3 tests/simple_test_suite.py
 
-# Запуск всех тестов с помощью pytest
-python3 -m pytest tests/ -v
-
-# Запуск тестов в режиме симуляции
-python3 tests/run_all_tests_simulated.py
+# Запуск тестов связи в симуляции
+python3 tests/test_communication_simulated.py
 ```
 
-### Запуск конкретных тестов
-```bash
-# Запуск unit-тестов
-python3 -m pytest tests/unit/ -v
+## Конфигурация тестирования
 
-# Запуск тестов безопасности
-python3 -m pytest -m security
+### pytest.ini
 
-# Запуск тестов производительности
-python3 -m pytest -m performance
-```
-
-## Покрытие кода
-
-Для проверки покрытия кода тестами:
-```bash
-python3 -m pytest --cov=. --cov-report=html
-```
-
-## Тестирование в Docker
-
-Система также может быть протестирована в Docker-контейнерах:
-```bash
-# Сборка образа
-docker build -f Dockerfile -t cubesat-pi .
-
-# Запуск тестов в контейнере
-docker run --rm cubesat-pi python3 -m pytest tests/
-```
-
-## CI/CD интеграция
-
-Тесты интегрированы в CI/CD pipeline:
-- Автоматический запуск при каждом коммите
-- Проверка качества кода
-- Проверка безопасности
-- Тестирование совместимости
-
-## Требования к тестам
-
-### Покрытие
-- Минимум 80% покрытия кода
-- Все критические пути должны быть протестированы
-- Тесты безопасности обязательны
-
-### Производительность
-- Тесты не должны занимать более 5 минут
-- Память не должна превышать 512MB
-- CPU не должен превышать 80%
-
-### Надежность
-- Тесты должны быть стабильными
-- Не должно быть ложных срабатываний
-- Тесты должны работать в разных окружениях
-
-## Лицензия
-MIT License
+```ini
+[tool:pytest]
+testpaths = tests/
+python_files = test_*.py *_test.py
+python_classes = Test*
+python_functions = test_*
+addopts = 
+    -v
+    --tb=short
+    --strict-markers
+markers =
+    critical: marks tests as critical functionality
+    security: marks tests as security-related
+    communication: marks tests as communication-related
+    telemetry: marks tests as telemetry-related
+    performance: marks tests as performance-related
+    simulation: marks tests as simulation-only
+    hardware: marks tests as requiring hardware (deselect with '-m "not hardware"')

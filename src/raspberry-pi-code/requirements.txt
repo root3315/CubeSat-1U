@@ -8,3 +8,15 @@ RPi.GPIO==0.7.1
 # Additional utilities
 psutil==5.9.5
 python-dateutil==2.8.2
+
+# Security and cryptography
+cryptography==41.0.4
+
+# Distributed system support
+aiohttp==3.9.1
+requests==2.31.0
+
+# Testing
+pytest==7.4.3
+pytest-cov==4.1.0
+pytest-asyncio==0.21.1

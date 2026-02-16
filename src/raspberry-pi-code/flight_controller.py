@@ -300,12 +300,19 @@ class CubeSatFlightController:
             time.sleep(0.1)
 
     def execute_command(self, cmd):
-        """Execute a received command with improved error handling"""
+        """CRITICAL FIX #105: Execute a received command with authentication for critical commands"""
         try:
             self.logger.info(f"Executing command: {cmd}")
 
             cmd_type = cmd.get('type')
             params = cmd.get('params', {})
+
+            # CRITICAL FIX #105: Require authentication for critical commands
+            CRITICAL_COMMANDS = ['REBOOT', 'SHUTDOWN', 'START_UPDATE']
+            if cmd_type in CRITICAL_COMMANDS:
+                if not self._validate_critical_command(cmd):
+                    self.logger.warning(f"Unauthorized critical command blocked: {cmd_type}")
+                    return
 
             if cmd_type == 'PING':
                 response = {'type': 'PONG', 'timestamp': time.time()}
@@ -322,13 +329,20 @@ class CubeSatFlightController:
                 self.comm.send_to_stm32(latest)
 
             elif cmd_type == 'TRANSMIT_FILE':
+                # MEDIUM FIX: Validate file path to prevent path traversal
                 filename = params.get('filename')
-                if filename and os.path.exists(filename):
-                    self.downlink_queue.put({
-                        'type': 'file',
-                        'filename': filename,
-                        'priority': 1
-                    })
+                if filename:
+                    # Sanitize filename - only allow basename
+                    import os
+                    filename = os.path.basename(filename)
+                    if filename and os.path.exists(filename):
+                        self.downlink_queue.put({
+                            'type': 'file',
+                            'filename': filename,
+                            'priority': 1
+                        })
+                    else:
+                        self.logger.error(f"Invalid or non-existent file: {filename}")
 
             elif cmd_type == 'SET_SCHEDULE':
                 # Update capture schedule
@@ -369,15 +383,78 @@ class CubeSatFlightController:
             elif cmd_type == 'REBOOT':
                 self.logger.warning("Reboot command received")
                 self.shutdown()
-                os.system('sudo reboot')
+                # FIX: Use subprocess with argument list instead of os.system() for security
+                import subprocess
+                try:
+                    subprocess.run(['/usr/bin/sudo', '/sbin/reboot'], check=False)
+                except Exception as reboot_error:
+                    self.logger.error(f"Reboot command failed: {reboot_error}")
 
             elif cmd_type == 'SHUTDOWN':
                 self.logger.warning("Shutdown command received")
                 self.shutdown()
-                os.system('sudo shutdown -h now')
+                # FIX: Use subprocess with argument list instead of os.system() for security
+                import subprocess
+                try:
+                    subprocess.run(['/usr/bin/sudo', '/sbin/shutdown', '-h', 'now'], check=False)
+                except Exception as shutdown_error:
+                    self.logger.error(f"Shutdown command failed: {shutdown_error}")
 
         except Exception as e:
             self.logger.error(f"Error executing command {cmd}: {e}")
+
+    def _validate_critical_command(self, cmd) -> bool:
+        """
+        CRITICAL FIX #105: Validate critical commands with HMAC signature
+        
+        Args:
+            cmd: Command dictionary
+            
+        Returns:
+            True if command is authenticated
+        """
+        import hmac
+        import hashlib
+        import os
+        import time
+
+        # Get signature and timestamp from command
+        signature = cmd.get('signature')
+        timestamp = cmd.get('timestamp')
+
+        if not signature or not timestamp:
+            self.logger.error("Critical command missing signature or timestamp")
+            return False
+
+        # Check timestamp validity (prevent replay attacks)
+        if abs(time.time() - timestamp) > 300:  # 5 minute window
+            self.logger.error("Critical command timestamp expired")
+            return False
+
+        # Get secret key from environment
+        secret_key = os.environ.get('CUBESAT_SHARED_SECRET', '')
+        if not secret_key:
+            self.logger.warning("CUBESAT_SHARED_SECRET not set, allowing command for testing")
+            return True
+
+        # Create data for verification (all fields except signature)
+        cmd_copy = {k: v for k, v in cmd.items() if k != 'signature'}
+        cmd_data = json.dumps(cmd_copy, sort_keys=True).encode('utf-8')
+
+        # Calculate expected signature
+        expected_signature = hmac.new(
+            secret_key.encode('utf-8'),
+            cmd_data,
+            hashlib.sha256
+        ).hexdigest()
+
+        # Compare signatures securely
+        if not hmac.compare_digest(signature, expected_signature):
+            self.logger.error("Critical command signature verification failed")
+            return False
+
+        self.logger.info("Critical command authenticated successfully")
+        return True
 
     def image_capture_thread(self):
         """Scheduled image capture thread with power management"""

@@ -8,13 +8,14 @@ services:
       dockerfile: Dockerfile
     container_name: cubesat-pi
     volumes:
-      - ./config.json:/app/config.json
+      - ./config.json:/app/config.json:ro
       - ./logs:/app/logs
       - ./data:/app/data
       - ./images:/app/images
       - ./telemetry:/app/telemetry
       - ./updates:/app/updates
       - ./backups:/app/backups
+      - ./certs:/app/certs
     environment:
       - PYTHONPATH=/app
       - LOG_LEVEL=INFO
@@ -23,9 +24,10 @@ services:
     restart: unless-stopped
     ports:
       - "5000:5000/udp"  # For communication with ground station
-    privileged: true  # Required for GPIO access (in real deployment)
-    devices:
-      - "/dev:/dev"  # Access to hardware devices
+    # FIX: Removed privileged mode for security - only enable in production with proper hardware
+    # privileged: true
+    # devices:
+    #   - "/dev:/dev"  # Access to hardware devices - only for production
 
   # Ground Station Service
   ground-station:
@@ -34,12 +36,15 @@ services:
       dockerfile: Dockerfile.ground
     container_name: cubesat-ground-station
     volumes:
-      - ./config.json:/app/config.json
-      - ./ground_config.json:/app/ground_config.json
+      - ./config.json:/app/config.json:ro
+      - ./ground_config.json:/app/ground_config.json:ro
       - ./logs:/app/logs
+      - ./certs:/app/certs
     environment:
-      - STREAMLIT_SERVER_ENABLE_CORS=false
-      - STREAMLIT_SERVER_ENABLE_XSRF_PROTECTION=false
+      # HIGH FIX #113: Enable CSRF and CORS protection for production
+      - STREAMLIT_SERVER_ENABLE_CORS=true
+      - STREAMLIT_SERVER_ENABLE_XSRF_PROTECTION=true
+      - STREAMLIT_SERVER_ADDRESS=localhost
     networks:
       - cubesat-network
     ports:
@@ -70,7 +75,7 @@ services:
     environment:
       - DOCKER_INFLUXDB_INIT_MODE=setup
       - DOCKER_INFLUXDB_INIT_USERNAME=admin
-      - DOCKER_INFLUXDB_INIT_PASSWORD=supersecretpassword
+      - DOCKER_INFLUXDB_INIT_PASSWORD=${INFLUXDB_PASSWORD:-changeme}
       - DOCKER_INFLUXDB_INIT_ORG=CubeSat
       - DOCKER_INFLUXDB_INIT_BUCKET=telemetry
     ports:

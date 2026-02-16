@@ -91,18 +91,13 @@ class GroundStationSSLHandler:
                     
                 except subprocess.CalledProcessError as e:
                     self.logger.error(f"Failed to generate certificates: {e}")
-                    # Create dummy files to prevent repeated attempts
-                    with open(self.cert_file, 'w') as f:
-                        f.write("# Dummy certificate file\n")
-                    with open(self.key_file, 'w') as f:
-                        f.write("# Dummy key file\n")
+                    # CRITICAL FIX #106: Don't create dummy files - fail properly
+                    raise RuntimeError(f"SSL certificate generation failed: {e}")
                 except FileNotFoundError:
-                    self.logger.error("OpenSSL not found. Creating dummy certificate files.")
-                    # Create dummy files to prevent repeated attempts
-                    with open(self.cert_file, 'w') as f:
-                        f.write("# Dummy certificate file\n")
-                    with open(self.key_file, 'w') as f:
-                        f.write("# Dummy key file\n")
+                    self.logger.error("OpenSSL not found. SSL cannot be enabled without OpenSSL.")
+                    # CRITICAL FIX #106: Don't create dummy files - fail properly
+                    self.ssl_enabled = False
+                    raise RuntimeError("OpenSSL is required for SSL/TLS functionality")
     
     def _create_ssl_context(self):
         """Create SSL context based on configuration"""

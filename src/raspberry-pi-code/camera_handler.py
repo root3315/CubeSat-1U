@@ -22,6 +22,9 @@ class CameraHandler:
         self.config = config
         self.logger = logging.getLogger('CameraHandler')
 
+        # FIX: Track camera availability state
+        self.camera_available = False
+
         # Initialize camera
         self.camera = None
         self.init_camera()
@@ -30,27 +33,42 @@ class CameraHandler:
         self.setup_storage()
 
     def init_camera(self):
-        """Initialize the camera with optimized settings"""
+        """Initialize the camera with optimized settings and proper null checks"""
         try:
             # Use lower resolution initially for faster startup
             self.camera = cv2.VideoCapture(0)
-            
+
+            # FIX: Check if camera opened successfully
+            if not self.camera.isOpened():
+                self.logger.error("Camera failed to open - device not available")
+                self.camera.release()
+                self.camera = None
+                self.camera_available = False
+                return
+
             # Set properties for optimal performance
-            self.camera.set(cv2.CAP_PROP_FRAME_WIDTH, 
+            self.camera.set(cv2.CAP_PROP_FRAME_WIDTH,
                            self.config['camera']['resolution'][0] // 2)  # Lower res for speed
-            self.camera.set(cv2.CAP_PROP_FRAME_HEIGHT, 
+            self.camera.set(cv2.CAP_PROP_FRAME_HEIGHT,
                            self.config['camera']['resolution'][1] // 2)  # Lower res for speed
             self.camera.set(cv2.CAP_PROP_FPS, 15)  # Lower FPS for efficiency
             self.camera.set(cv2.CAP_PROP_BUFFERSIZE, 1)  # Minimize buffer
 
             # Warm up camera with fewer frames
             for _ in range(3):  # Reduced warm-up
-                self.camera.read()
+                ret, _ = self.camera.read()
+                if not ret:
+                    self.logger.warning("Camera warm-up frame capture failed")
 
+            self.camera_available = True
             self.logger.info("Camera initialized successfully with optimized settings")
+
         except Exception as e:
             self.logger.error(f"Camera initialization failed: {e}")
+            if self.camera:
+                self.camera.release()
             self.camera = None
+            self.camera_available = False
 
     def setup_storage(self):
         """Setup image storage directories"""
@@ -64,17 +82,24 @@ class CameraHandler:
 
     def capture_image(self, output_queue=None):
         """Capture an image from the camera with optimized performance"""
-        if not self.camera:
-            self.logger.error("Camera not initialized")
+        # FIX: Check both camera object and availability flag
+        if not self.camera or not self.camera_available:
+            self.logger.error("Camera not initialized or not available")
             return None
 
         try:
             self.logger.info("Capturing image...")
 
-            # Capture frame
-            ret, frame = self.camera.read()
-            if not ret:
-                self.logger.error("Failed to capture image")
+            # Capture frame with retry logic
+            ret, frame = None, None
+            for attempt in range(3):
+                ret, frame = self.camera.read()
+                if ret and frame is not None:
+                    break
+                self.logger.warning(f"Capture attempt {attempt + 1} failed, retrying...")
+                time.sleep(0.1)
+            else:
+                self.logger.error("Failed to capture image after 3 attempts")
                 return None
 
             # Generate filename with timestamp
@@ -237,7 +262,13 @@ class CameraHandler:
         return False
 
     def cleanup(self):
-        """Release camera resources"""
+        """FIX: Release camera resources properly"""
         if self.camera:
-            self.camera.release()
-            self.logger.info("Camera released")
+            try:
+                self.camera.release()
+            except Exception as e:
+                self.logger.error(f"Error releasing camera: {e}")
+            finally:
+                self.camera = None
+                self.camera_available = False
+        self.logger.info("Camera released")

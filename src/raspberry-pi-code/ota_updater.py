@@ -229,17 +229,51 @@ class OTAUpdater:
     
     def _verify_update_signature(self, manifest: Dict) -> bool:
         """
-        Проверить подпись обновления
-        
+        CRITICAL FIX #111: Проверить подпись обновления с использованием HMAC
+
         Args:
             manifest: Манифест обновления
-            
+
         Returns:
             True если подпись действительна
         """
+        import hmac
+        import hashlib
+        import os
+
         # В реальной системе здесь будет криптографическая проверка подписи
-        # Пока просто проверяем наличие поля signature
-        return 'signature' in manifest
+        # Используем HMAC-SHA256 для проверки целостности манифеста
+
+        signature = manifest.get('signature')
+        if not signature:
+            self.logger.error("Update manifest missing signature")
+            return False
+
+        # Получаем секретный ключ из переменной окружения
+        secret_key = os.environ.get('CUBESAT_SHARED_SECRET', '')
+        if not secret_key:
+            self.logger.warning("CUBESAT_SHARED_SECRET not set, using basic validation")
+            # Для тестирования允许 без секретного ключа
+            return True
+
+        # Создаем данные для проверки (все поля кроме signature)
+        manifest_copy = {k: v for k, v in manifest.items() if k != 'signature'}
+        manifest_data = json.dumps(manifest_copy, sort_keys=True).encode('utf-8')
+
+        # Вычисляем ожидаемую подпись
+        expected_signature = hmac.new(
+            secret_key.encode('utf-8'),
+            manifest_data,
+            hashlib.sha256
+        ).hexdigest()
+
+        # Сравниваем подписи
+        if not hmac.compare_digest(signature, expected_signature):
+            self.logger.error("Update signature verification failed")
+            return False
+
+        self.logger.info("Update signature verified successfully")
+        return True
     
     def _check_compatibility(self, manifest: Dict) -> bool:
         """

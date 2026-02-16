@@ -9,6 +9,7 @@ import secrets
 from typing import Dict, Optional, Tuple
 import json
 import struct
+import threading  # FIX: Add threading for thread-safe nonce handling
 
 
 class SecurityManager:
@@ -34,6 +35,8 @@ class SecurityManager:
         self.nonce_registry = {}
         # Nonce time-to-live in seconds
         self.nonce_ttl = 60  # Reduced TTL for CubeSat (1 minute)
+        # FIX: Add thread lock for thread-safe nonce operations
+        self._nonce_lock = threading.Lock()
 
     def generate_nonce(self) -> str:
         """
@@ -56,15 +59,17 @@ class SecurityManager:
         """
         current_time = time.time()
 
-        # Check if nonce exists
-        if nonce in self.nonce_registry:
-            # Check lifetime
-            timestamp = self.nonce_registry[nonce]
-            if current_time - timestamp > self.nonce_ttl:
-                # Remove expired nonce
-                del self.nonce_registry[nonce]
-                return False
-            return True
+        # FIX: Thread-safe nonce check
+        with self._nonce_lock:
+            # Check if nonce exists
+            if nonce in self.nonce_registry:
+                # Check lifetime
+                timestamp = self.nonce_registry[nonce]
+                if current_time - timestamp > self.nonce_ttl:
+                    # Remove expired nonce
+                    del self.nonce_registry[nonce]
+                    return False
+                return True
         return False
 
     def register_nonce(self, nonce: str):
@@ -74,16 +79,18 @@ class SecurityManager:
         Args:
             nonce: One-time number to register
         """
-        self.nonce_registry[nonce] = time.time()
+        # FIX: Thread-safe nonce registration
+        with self._nonce_lock:
+            self.nonce_registry[nonce] = time.time()
 
-        # Clean up expired nonces periodically
-        current_time = time.time()
-        expired_nonces = [
-            n for n, t in self.nonce_registry.items()
-            if current_time - t > self.nonce_ttl
-        ]
-        for n in expired_nonces:
-            del self.nonce_registry[n]
+            # Clean up expired nonces periodically
+            current_time = time.time()
+            expired_nonces = [
+                n for n, t in self.nonce_registry.items()
+                if current_time - t > self.nonce_ttl
+            ]
+            for n in expired_nonces:
+                del self.nonce_registry[n]
 
     def create_signature(self, data: bytes, timestamp: float = None) -> str:
         """

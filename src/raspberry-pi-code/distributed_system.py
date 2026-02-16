@@ -1,6 +1,10 @@
 """
 Simplified Distributed Architecture Components for CubeSat System
 Lightweight implementation optimized for single CubeSat with limited resources
+
+Note: This is a simplified version that doesn't require aiohttp.
+For the full async version with HTTP communication, use the distributed_system.py
+from the main CubeSat_1u-main project and ensure aiohttp==3.9.1 is installed.
 """
 import json
 import logging

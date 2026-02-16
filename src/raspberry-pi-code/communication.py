@@ -41,6 +41,12 @@ class CommunicationHandler:
         self.SYNC_IMAGE = 0xAA58
         self.SYNC_FILE = 0xAA59
 
+        # HIGH FIX #112: Rate limiting for command processing
+        self.rate_limit_window = 60  # 60 seconds
+        self.rate_limit_max_commands = 100  # Max 100 commands per minute
+        self.command_timestamps = []
+        self.rate_limit_lock = threading.Lock()
+
         # Initialize security manager
         self.security_manager = SecurityManager(
             shared_secret=config.get('security', {}).get('shared_secret', 'default_secret_key')
@@ -208,12 +214,18 @@ class CommunicationHandler:
             self.logger.error(f"Error processing radio data: {e}")
 
     def parse_incoming_data(self, data):
-        """Parse incoming binary data"""
+        """HIGH FIX #109: Parse incoming binary data with input validation"""
         packets = []
         i = 0
 
+        # HIGH FIX #109: Maximum packet size validation
+        MAX_PARAM_LENGTH = 256
+        MAX_IMAGE_CHUNK_SIZE = 4096
+
         while i < len(data) - 1:
             # Look for sync pattern
+            if i + 2 > len(data):
+                break
             sync = struct.unpack('<H', data[i:i+2])[0]
 
             if sync == self.SYNC_TELEMETRY:
@@ -231,6 +243,12 @@ class CommunicationHandler:
                     cmd_id = data[i+2]
                     seq = struct.unpack('<H', data[i+3:i+5])[0]
                     param_len = struct.unpack('<H', data[i+5:i+7])[0]
+
+                    # HIGH FIX #109: Validate parameter length
+                    if param_len > MAX_PARAM_LENGTH or param_len < 0:
+                        self.logger.error(f"Invalid parameter length {param_len}")
+                        i += 1
+                        continue
 
                     if i + 8 + param_len <= len(data):
                         params = data[i+8:i+8+param_len]
@@ -258,6 +276,12 @@ class CommunicationHandler:
                 if i + 7 <= len(data):
                     chunk_num = struct.unpack('<H', data[i+2:i+4])[0]
                     data_len = struct.unpack('<H', data[i+4:i+6])[0]
+
+                    # HIGH FIX #109: Validate image chunk size
+                    if data_len > MAX_IMAGE_CHUNK_SIZE or data_len < 0:
+                        self.logger.error(f"Invalid image chunk size {data_len}")
+                        i += 1
+                        continue
 
                     if i + 7 + data_len <= len(data):
                         image_data = data[i+7:i+7+data_len]
@@ -420,14 +444,56 @@ class CommunicationHandler:
         return packet
 
     def cleanup(self):
-        """Close serial ports"""
+        """HIGH FIX #110: Close serial ports with proper error handling and thread synchronization"""
         self.running = False
 
+        # Wait for reader thread to finish with timeout
+        if hasattr(self, 'reader_thread') and self.reader_thread.is_alive():
+            self.reader_thread.join(timeout=2.0)
+
+        # Close serial ports with error handling
         if self.stm32_serial:
-            self.stm32_serial.close()
+            try:
+                self.stm32_serial.cancel_read()  # Force any blocking reads to timeout
+            except:
+                pass
+            try:
+                self.stm32_serial.close()
+            except Exception as e:
+                self.logger.error(f"Error closing STM32 serial: {e}")
+
         if self.radio_serial:
-            self.radio_serial.close()
+            try:
+                self.radio_serial.cancel_read()  # Force any blocking reads to timeout
+            except:
+                pass
+            try:
+                self.radio_serial.close()
+            except Exception as e:
+                self.logger.error(f"Error closing radio serial: {e}")
+
         if self.udp_socket:
-            self.udp_socket.close()
+            try:
+                self.udp_socket.close()
+            except Exception as e:
+                self.logger.error(f"Error closing UDP socket: {e}")
 
         self.logger.info("Communication handler cleaned up")
+
+    def _check_rate_limit(self) -> bool:
+        """HIGH FIX #112: Check if command rate is within limits"""
+        current_time = time.time()
+        with self.rate_limit_lock:
+            # Remove timestamps outside the window
+            self.command_timestamps = [
+                ts for ts in self.command_timestamps
+                if current_time - ts < self.rate_limit_window
+            ]
+
+            # Check if we're over the limit
+            if len(self.command_timestamps) >= self.rate_limit_max_commands:
+                return False
+
+            # Add current timestamp
+            self.command_timestamps.append(current_time)
+            return True

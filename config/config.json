@@ -29,7 +29,8 @@
         "ground_station_ip": "192.168.1.100"
     },
     "security": {
-        "shared_secret": "JDZs38pT0ickT703EbHTSvAuQpJG7KHevNu_C7Rs1Cc",
+        "shared_secret": "${CUBESAT_SHARED_SECRET}",
+        "shared_secret_env_var": "CUBESAT_SHARED_SECRET",
         "require_auth": true,
         "enable_signing": true,
         "ssl_enabled": false,

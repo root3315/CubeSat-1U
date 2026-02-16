@@ -1,5 +1,6 @@
 # Dockerfile for CubeSat Raspberry Pi Component
-FROM python:3.9-slim
+# FIX: Updated to Python 3.11 for security patches
+FROM python:3.11-slim
 
 # Set environment variables
 ENV PYTHONDONTWRITEBYTECODE=1
@@ -38,14 +39,14 @@ RUN pip install opencv-python-headless
 COPY . /app/
 
 # Create necessary directories
-RUN mkdir -p /app/logs /app/data /app/images /app/telemetry /app/updates /app/backups
+RUN mkdir -p /app/logs /app/data /app/images /app/telemetry /app/updates /app/backups /app/certs
 
 # Create a non-root user for security
 RUN adduser --disabled-password --gecos '' appuser
 RUN chown -R appuser:appuser /app
 USER appuser
 
-# Expose necessary ports (if any network services are added later)
+# Expose necessary ports
 EXPOSE 5000
 
 # Run the flight controller
