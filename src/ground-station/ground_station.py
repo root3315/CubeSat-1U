@@ -455,9 +455,9 @@ st.markdown("""
 
 class Config:
     """System configuration"""
-    
+
     VERSION = "4.1.0"
-    
+
     # Communication
     UDP_PORT = 5001
     SSL_PORT = 5002
@@ -465,7 +465,11 @@ class Config:
     SATELLITE_PORT = 5000
     BUFFER_SIZE = 4096
     COMMAND_TIMEOUT = 5.0
+    CONNECTION_TIMEOUT = 5.0
+    SOCKET_TIMEOUT = 2.0
     MAX_RETRIES = 3
+    HEARTBEAT_INTERVAL = 15
+    MAX_IDLE_TIME = 30
     
     # Data storage
     MAX_HISTORY = 10000
@@ -867,7 +871,7 @@ class CommunicationHandler:
 
         self.satellite_ip = Config.SATELLITE_IP
         self.satellite_port = Config.SATELLITE_PORT
-        self.ssl_port = getattr(Config, 'SSL_PORT', 5001)  # Default SSL port
+        self.ssl_port = getattr(Config, 'SSL_PORT', 5001)
         self.local_port = Config.UDP_PORT
 
         self.packets_sent = 0
@@ -876,19 +880,22 @@ class CommunicationHandler:
         self.bytes_received = 0
         self.last_activity = 0
         self.connection_time = 0
+        self.last_heartbeat = 0
 
-        # SSL/TLS support
+        self.connection_timeout = Config.CONNECTION_TIMEOUT
+        self.socket_timeout = Config.SOCKET_TIMEOUT
+        self.max_idle_time = Config.MAX_IDLE_TIME
+        self.max_retries = Config.MAX_RETRIES
+
         self.ssl_enabled = False
         self.ssl_handler = None
         if SSL_AVAILABLE:
-            # Load configuration for SSL
             import json
             try:
-                with open('../../config.json', 'r') as f:
+                with open('../../config/config.json', 'r') as f:
                     config = json.load(f)
                     self.ssl_enabled = config.get('security', {}).get('ssl_enabled', False)
             except:
-                # Default to disabled if config not found
                 self.ssl_enabled = False
 
             if self.ssl_enabled:
@@ -922,9 +929,9 @@ class CommunicationHandler:
             self.ssl_thread.join(timeout=2)
     
     def _communication_loop(self):
-        """Main UDP communication loop"""
+        """Main UDP communication loop with timeout handling"""
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        self.socket.settimeout(1.0)
+        self.socket.settimeout(self.socket_timeout)
 
         try:
             self.socket.bind(('0.0.0.0', self.local_port))
@@ -947,22 +954,23 @@ class CommunicationHandler:
                 self._process_packet(data)
 
             except socket.timeout:
-                if self.connected and time.time() - self.last_activity > 10:
+                idle_time = time.time() - self.last_activity
+                if self.connected and idle_time > self.max_idle_time:
                     self.connected = False
+                    print(f"Connection timeout: no activity for {idle_time:.1f}s")
             except Exception as e:
                 print(f"UDP Communication error: {e}")
 
     def _ssl_communication_loop(self):
-        """SSL/TLS communication loop"""
+        """SSL/TLS communication loop with timeout handling"""
         if not self.ssl_handler:
             print("SSL handler not available")
             return
 
         try:
-            # Create SSL server socket
             self.ssl_socket = self.ssl_handler.create_secure_server_socket('0.0.0.0', self.ssl_port)
             self.ssl_socket.listen(5)
-            self.ssl_socket.settimeout(1.0)
+            self.ssl_socket.settimeout(self.socket_timeout)
         except Exception as e:
             print(f"SSL Socket error: {e}")
             return
@@ -970,8 +978,7 @@ class CommunicationHandler:
         while self.running:
             try:
                 client_sock, addr = self.ssl_socket.accept()
-                
-                # Handle SSL client in a separate thread
+
                 client_thread = threading.Thread(
                     target=self._handle_ssl_client,
                     args=(client_sock, addr)
@@ -980,23 +987,27 @@ class CommunicationHandler:
                 client_thread.start()
 
             except socket.timeout:
+                idle_time = time.time() - self.last_activity
+                if self.ssl_connected and idle_time > self.max_idle_time:
+                    self.ssl_connected = False
+                    print(f"SSL connection timeout: no activity for {idle_time:.1f}s")
                 continue
             except Exception as e:
                 print(f"SSL Communication error: {e}")
 
     def _handle_ssl_client(self, client_sock, addr):
-        """Handle incoming SSL client connection"""
+        """Handle incoming SSL client connection with timeout"""
         try:
-            # Wrap the socket with SSL
             ssl_sock = self.ssl_handler.wrap_socket(client_sock, server_side=False)
-            
-            # Receive data securely
+            ssl_sock.settimeout(self.connection_timeout)
+
             data = self.ssl_handler.receive_secure_data(ssl_sock)
             if data:
-                # Process the received data
                 self._process_ssl_packet(data)
-            
+
             ssl_sock.close()
+        except socket.timeout:
+            print(f"SSL client timeout: connection took too long")
         except Exception as e:
             print(f"SSL client handling error: {e}")
             try:
@@ -1030,19 +1041,27 @@ class CommunicationHandler:
             self.receive_queue.put(('beacon', data))
     
     def send_command(self, command_id, params=None, use_ssl=False):
-        """Send command to satellite via UDP or SSL/TLS"""
-        if use_ssl and self.ssl_enabled and self.ssl_handler:
-            return self._send_ssl_command(command_id, params)
-        else:
-            return self._send_udp_command(command_id, params)
+        """Send command to satellite via UDP or SSL/TLS with retry support"""
+        for attempt in range(self.max_retries):
+            if use_ssl and self.ssl_enabled and self.ssl_handler:
+                result = self._send_ssl_command(command_id, params)
+            else:
+                result = self._send_udp_command(command_id, params)
+
+            if result:
+                return True
+
+            if attempt < self.max_retries - 1:
+                time.sleep(0.5 * (attempt + 1))
+
+        return False
 
     def _send_udp_command(self, command_id, params=None):
-        """Send command via UDP"""
+        """Send command via UDP with timeout handling"""
         if not self.connected:
             return False
 
         try:
-            # Build command packet
             packet = bytearray()
             packet.extend(struct.pack('<H', Config.SYNC_COMMAND))
             packet.append(command_id)
@@ -1055,30 +1074,32 @@ class CommunicationHandler:
             else:
                 packet.extend(struct.pack('<H', 0))
 
-            # Add checksum
             checksum = sum(packet) & 0xFFFF
             packet.extend(struct.pack('<H', checksum))
 
-            # Send
+            self.socket.settimeout(self.socket_timeout)
             self.socket.sendto(packet, (self.satellite_ip, self.satellite_port))
 
             self.packets_sent += 1
             self.bytes_sent += len(packet)
             self.last_activity = time.time()
+            self.last_heartbeat = time.time()
 
             return True
 
+        except socket.timeout:
+            print(f"UDP send timeout: command {command_id} failed")
+            return False
         except Exception as e:
             print(f"UDP Send error: {e}")
             return False
 
     def _send_ssl_command(self, command_id, params=None):
-        """Send command via SSL/TLS"""
-        if not self.ssl_connected and not self.ssl_enabled:
+        """Send command via SSL/TLS with timeout handling"""
+        if not self.ssl_enabled or not self.ssl_handler:
             return False
 
         try:
-            # Build command packet
             packet = bytearray()
             packet.extend(struct.pack('<H', Config.SYNC_COMMAND))
             packet.append(command_id)
@@ -1091,31 +1112,35 @@ class CommunicationHandler:
             else:
                 packet.extend(struct.pack('<H', 0))
 
-            # Add checksum
             checksum = sum(packet) & 0xFFFF
             packet.extend(struct.pack('<H', checksum))
 
-            # Create SSL client socket
-            ssl_sock = self.ssl_handler.create_secure_client_socket(self.satellite_ip, self.ssl_port)
+            ssl_sock = self.ssl_handler.create_secure_client_socket(
+                self.satellite_ip,
+                self.ssl_port
+            )
+            ssl_sock.settimeout(self.connection_timeout)
 
-            # Send securely
             success = self.ssl_handler.send_secure_data(ssl_sock, packet)
-
             ssl_sock.close()
 
             if success:
                 self.packets_sent += 1
                 self.bytes_sent += len(packet)
                 self.last_activity = time.time()
+                self.last_heartbeat = time.time()
 
             return success
 
+        except socket.timeout:
+            print(f"SSL send timeout: command {command_id} failed")
+            return False
         except Exception as e:
             print(f"SSL Send error: {e}")
             return False
     
     def get_stats(self):
-        """Get communication statistics"""
+        """Get communication statistics including timeout info"""
         return {
             'connected': self.connected,
             'ssl_connected': self.ssl_connected,
@@ -1125,8 +1150,14 @@ class CommunicationHandler:
             'bytes_sent': self.bytes_sent,
             'bytes_received': self.bytes_received,
             'last_activity': self.last_activity,
+            'last_heartbeat': self.last_heartbeat,
             'connection_time': self.connection_time,
-            'satellite_ip': self.satellite_ip if self.connected else None
+            'satellite_ip': self.satellite_ip if self.connected else None,
+            'timeouts': {
+                'connection': self.connection_timeout,
+                'socket': self.socket_timeout,
+                'max_idle': self.max_idle_time
+            }
         }
 
 # ==============================================================================

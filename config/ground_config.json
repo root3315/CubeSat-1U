@@ -10,8 +10,12 @@
         "satellite_host": "localhost",
         "satellite_port": 5000,
         "command_timeout": 10.0,
+        "connection_timeout": 5.0,
+        "socket_timeout": 2.0,
         "max_retries": 3,
-        "beacon_interval": 30
+        "beacon_interval": 30,
+        "heartbeat_interval": 15,
+        "max_idle_time": 30
     },
     "security": {
         "ssl_enabled": true,

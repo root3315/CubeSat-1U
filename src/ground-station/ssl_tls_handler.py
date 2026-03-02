@@ -34,6 +34,9 @@ class GroundStationSSLHandler:
         self.key_file = config.get('security', {}).get('key_file', './certs/client.key')
         self.ca_cert_file = config.get('security', {}).get('ca_cert_file', './certs/ca.crt')
 
+        self.connection_timeout = config.get('communication', {}).get('connection_timeout', 5.0)
+        self.socket_timeout = config.get('communication', {}).get('socket_timeout', 2.0)
+
         certs_dir = os.path.dirname(self.cert_file)
         if certs_dir and not os.path.exists(certs_dir):
             os.makedirs(certs_dir, exist_ok=True)
@@ -133,6 +136,7 @@ class GroundStationSSLHandler:
             SSL-wrapped socket
         """
         if not self.ssl_enabled or self.ssl_context is None:
+            sock.settimeout(self.socket_timeout)
             return sock
 
         try:
@@ -141,10 +145,12 @@ class GroundStationSSLHandler:
                 server_side=server_side,
                 do_handshake_on_connect=True
             )
+            wrapped_sock.settimeout(self.connection_timeout)
             self.logger.info(f"Socket wrapped with SSL/TLS (server_side={server_side})")
             return wrapped_sock
         except Exception as e:
             self.logger.error(f"Failed to wrap socket with SSL: {e}")
+            sock.settimeout(self.socket_timeout)
             return sock
 
     def create_secure_server_socket(self, host: str, port: int) -> socket.socket:
@@ -185,11 +191,13 @@ class GroundStationSSLHandler:
         """
         if not self.ssl_enabled:
             client_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            client_sock.settimeout(self.connection_timeout)
             client_sock.connect((host, port))
             return client_sock
 
         client_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         ssl_sock = self.wrap_socket(client_sock, server_side=False)
+        ssl_sock.settimeout(self.connection_timeout)
         ssl_sock.connect((host, port))
 
         return ssl_sock
@@ -225,6 +233,7 @@ class GroundStationSSLHandler:
             Received data or None if failed
         """
         try:
+            ssl_socket.settimeout(self.connection_timeout)
             len_bytes = ssl_socket.recv(4)
             if not len_bytes:
                 return None
@@ -241,6 +250,9 @@ class GroundStationSSLHandler:
                 remaining -= len(chunk)
 
             return data
+        except socket.timeout:
+            self.logger.error("SSL receive timeout")
+            return None
         except Exception as e:
             self.logger.error(f"Failed to receive secure data: {e}")
             return None
