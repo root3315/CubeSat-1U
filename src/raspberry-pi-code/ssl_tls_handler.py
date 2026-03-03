@@ -2,10 +2,12 @@
 Simplified SSL/TLS Handler for CubeSat Communication
 Lightweight implementation optimized for resource-constrained environments
 """
+from __future__ import annotations
+
 import ssl
 import socket
 import logging
-from typing import Optional
+from typing import Optional, Any, Dict
 import os
 import tempfile
 import secrets
@@ -18,43 +20,43 @@ class SSLTLSHandler:
     Lightweight implementation for CubeSat resource constraints
     """
 
-    def __init__(self, config):
-        self.config = config
-        self.logger = logging.getLogger('SSL_TLS_Handler')
+    def __init__(self, config: Dict[str, Any]) -> None:
+        self.config: Dict[str, Any] = config
+        self.logger: logging.Logger = logging.getLogger('SSL_TLS_Handler')
 
         # Simplified SSL/TLS configuration
-        self.ssl_enabled = config.get('security', {}).get('ssl_enabled', False)
-        self.cert_file = config.get('security', {}).get('cert_file', './certs/server.crt')
-        self.key_file = config.get('security', {}).get('key_file', './certs/server.key')
+        self.ssl_enabled: bool = config.get('security', {}).get('ssl_enabled', False)
+        self.cert_file: str = config.get('security', {}).get('cert_file', './certs/server.crt')
+        self.key_file: str = config.get('security', {}).get('key_file', './certs/server.key')
 
         # FIX: Ensure certs directory exists
-        certs_dir = os.path.dirname(self.cert_file)
+        certs_dir: str = os.path.dirname(self.cert_file)
         if certs_dir and not os.path.exists(certs_dir):
             os.makedirs(certs_dir, exist_ok=True)
 
         # SSL context - simplified
-        self.ssl_context = None
+        self.ssl_context: Optional[ssl.SSLContext] = None
         if self.ssl_enabled:
             self._ensure_certificates_exist()
             self._create_basic_ssl_context()
 
-    def _ensure_certificates_exist(self):
+    def _ensure_certificates_exist(self) -> None:
         """FIX: Generate self-signed certificates if they don't exist using Python cryptography"""
-        cert_exists = os.path.exists(self.cert_file)
-        key_exists = os.path.exists(self.key_file)
+        cert_exists: bool = os.path.exists(self.cert_file)
+        key_exists: bool = os.path.exists(self.key_file)
 
         if not cert_exists or not key_exists:
             self.logger.info("Generating self-signed SSL certificates...")
             try:
                 # Try to generate using cryptography library
-                from cryptography import x509
-                from cryptography.x509.oid import NameOID
-                from cryptography.hazmat.primitives import hashes, serialization
-                from cryptography.hazmat.primitives.asymmetric import rsa
-                from cryptography.hazmat.backends import default_backend
+                from cryptography import x509  # type: ignore
+                from cryptography.x509.oid import NameOID  # type: ignore
+                from cryptography.hazmat.primitives import hashes, serialization  # type: ignore
+                from cryptography.hazmat.primitives.asymmetric import rsa  # type: ignore
+                from cryptography.hazmat.backends import default_backend  # type: ignore
 
                 # Generate private key
-                private_key = rsa.generate_private_key(
+                private_key: Any = rsa.generate_private_key(
                     public_exponent=65537,
                     key_size=2048,
                     backend=default_backend()
@@ -70,7 +72,7 @@ class SSLTLSHandler:
                 ])
 
                 # Build certificate
-                cert = (
+                cert: Any = (
                     x509.CertificateBuilder()
                     .subject_name(subject)
                     .issuer_name(issuer)
@@ -106,7 +108,7 @@ class SSLTLSHandler:
                 self.logger.error(f"Failed to generate certificates: {e}")
                 self.ssl_enabled = False
 
-    def _create_basic_ssl_context(self):
+    def _create_basic_ssl_context(self) -> None:
         """Create a basic SSL context with minimal configuration"""
         if not self.ssl_enabled:
             return
@@ -130,10 +132,10 @@ class SSLTLSHandler:
             self.ssl_enabled = False
             self.ssl_context = None
 
-    def wrap_socket(self, sock, server_side: bool = False):
+    def wrap_socket(self, sock: socket.socket, server_side: bool = False) -> socket.socket:
         """
         Wrap a socket with basic SSL/TLS
-        
+
         Args:
             sock: The socket to wrap
             server_side: True if this is a server socket, False for client
@@ -146,18 +148,19 @@ class SSLTLSHandler:
 
         try:
             # Simplified SSL wrapping
-            return self.ssl_context.wrap_socket(
+            ssl_sock: ssl.SSLSocket = self.ssl_context.wrap_socket(
                 sock,
                 server_side=server_side
             )
+            return ssl_sock
         except Exception as e:
             self.logger.warning(f"SSL wrapping failed, using plain socket: {e}")
             return sock  # Return original socket if SSL fails
 
-    def create_secure_connection(self, host: str, port: int):
+    def create_secure_connection(self, host: str, port: int) -> socket.socket:
         """
         Create a secure connection with minimal overhead
-        
+
         Args:
             host: Host to connect to
             port: Port to connect to
@@ -167,24 +170,24 @@ class SSLTLSHandler:
         """
         if not self.ssl_enabled:
             # Fallback to regular socket if SSL is disabled
-            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock: socket.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             sock.connect((host, port))
             return sock
 
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        ssl_sock = self.wrap_socket(sock, server_side=False)
+        ssl_sock: ssl.SSLSocket = self.wrap_socket(sock, server_side=False)
         ssl_sock.connect((host, port))
-        
+
         return ssl_sock
 
-    def enable_ssl(self):
+    def enable_ssl(self) -> None:
         """Enable SSL/TLS functionality"""
         self.ssl_enabled = True
         if self.ssl_enabled:
             self._create_basic_ssl_context()
         self.logger.info("SSL/TLS enabled (simplified)")
 
-    def disable_ssl(self):
+    def disable_ssl(self) -> None:
         """Disable SSL/TLS functionality"""
         self.ssl_enabled = False
         self.ssl_context = None
@@ -194,7 +197,7 @@ class SSLTLSHandler:
 # Example usage
 if __name__ == "__main__":
     # Example configuration
-    config = {
+    config: Dict[str, Any] = {
         "security": {
             "ssl_enabled": True,
             "cert_file": "./certs/server.crt",
@@ -203,7 +206,7 @@ if __name__ == "__main__":
     }
 
     # Create simplified SSL handler
-    ssl_handler = SSLTLSHandler(config)
+    ssl_handler: SSLTLSHandler = SSLTLSHandler(config)
 
     print("Simplified SSL/TLS Handler initialized")
     print(f"SSL Enabled: {ssl_handler.ssl_enabled}")

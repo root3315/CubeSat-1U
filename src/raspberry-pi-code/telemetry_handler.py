@@ -3,6 +3,7 @@
 Telemetry handler for CubeSat
 Manages telemetry data storage and retrieval
 """
+from __future__ import annotations
 
 import json
 import time
@@ -11,38 +12,39 @@ import logging
 from datetime import datetime, timedelta
 from pathlib import Path
 import sqlite3
-import threading  # FIX: Add threading for thread-safe database access
+import threading
+from typing import Dict, Any, List, Optional
 
 
 class TelemetryHandler:
     """Handles telemetry data logging and management"""
 
-    def __init__(self, config):
-        self.config = config
-        self.logger = logging.getLogger('TelemetryHandler')
+    def __init__(self, config: Dict[str, Any]) -> None:
+        self.config: Dict[str, Any] = config
+        self.logger: logging.Logger = logging.getLogger('TelemetryHandler')
 
         # FIX: Add thread lock for thread-safe database operations
-        self._db_lock = threading.Lock()
+        self._db_lock: threading.Lock = threading.Lock()
 
         # Setup storage
         self.setup_storage()
 
         # Latest telemetry cache
-        self.latest = {}
-        self.latest_battery = 0
-        
-    def setup_storage(self):
+        self.latest: Dict[str, Any] = {}
+        self.latest_battery: float = 0.0
+
+    def setup_storage(self) -> None:
         """Setup telemetry database"""
-        base_path = Path(self.config['storage']['base_path'])
-        db_path = base_path / 'telemetry' / 'telemetry.db'
-        
+        base_path: Path = Path(self.config['storage']['base_path'])
+        db_path: Path = base_path / 'telemetry' / 'telemetry.db'
+
         # Create directory if it doesn't exist
         db_path.parent.mkdir(parents=True, exist_ok=True)
-        
+
         # Initialize database
-        self.conn = sqlite3.connect(str(db_path), check_same_thread=False)
-        self.cursor = self.conn.cursor()
-        
+        self.conn: sqlite3.Connection = sqlite3.connect(str(db_path), check_same_thread=False)
+        self.cursor: sqlite3.Cursor = self.conn.cursor()
+
         # Create tables
         self.cursor.execute('''
             CREATE TABLE IF NOT EXISTS telemetry (
@@ -68,7 +70,7 @@ class TelemetryHandler:
                 uptime INTEGER
             )
         ''')
-        
+
         self.cursor.execute('''
             CREATE TABLE IF NOT EXISTS events (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -77,11 +79,11 @@ class TelemetryHandler:
                 description TEXT
             )
         ''')
-        
+
         self.conn.commit()
         self.logger.info("Telemetry database initialized")
-        
-    def save_telemetry(self, telemetry):
+
+    def save_telemetry(self, telemetry: Dict[str, Any]) -> None:
         """FIX: Thread-safe save telemetry data to database"""
         try:
             with self._db_lock:
@@ -119,12 +121,12 @@ class TelemetryHandler:
 
             # Update latest cache (outside lock for performance)
             self.latest = telemetry
-            self.latest_battery = telemetry.get('battery_voltage', 0)
+            self.latest_battery = float(telemetry.get('battery_voltage', 0))
 
         except Exception as e:
             self.logger.error(f"Error saving telemetry: {e}")
-            
-    def log_event(self, event_type, description):
+
+    def log_event(self, event_type: str, description: str) -> None:
         """FIX: Thread-safe log a system event"""
         try:
             with self._db_lock:
@@ -136,15 +138,15 @@ class TelemetryHandler:
         except Exception as e:
             self.logger.error(f"Error logging event: {e}")
 
-    def get_latest(self):
+    def get_latest(self) -> Dict[str, Any]:
         """Get latest telemetry data"""
         return self.latest
 
-    def get_latest_battery(self):
+    def get_latest_battery(self) -> float:
         """Get latest battery voltage"""
         return self.latest_battery
 
-    def get_telemetry_range(self, start_time, end_time, limit=1000):
+    def get_telemetry_range(self, start_time: float, end_time: float, limit: int = 1000) -> List[Dict[str, Any]]:
         """FIX: Thread-safe get telemetry data for a time range"""
         try:
             with self._db_lock:
@@ -155,10 +157,10 @@ class TelemetryHandler:
                     LIMIT ?
                 ''', (start_time, end_time, limit))
 
-                columns = [description[0] for description in self.cursor.description]
-                rows = self.cursor.fetchall()
+                columns: List[str] = [description[0] for description in self.cursor.description]
+                rows: List[tuple] = self.cursor.fetchall()
 
-            result = []
+            result: List[Dict[str, Any]] = []
             for row in rows:
                 result.append(dict(zip(columns, row)))
 
@@ -167,10 +169,10 @@ class TelemetryHandler:
             self.logger.error(f"Error getting telemetry range: {e}")
             return []
 
-    def export_to_json(self, days=7):
+    def export_to_json(self, days: int = 7) -> Optional[str]:
         """FIX: Thread-safe export telemetry to JSON file"""
         try:
-            start_time = time.time() - (days * 24 * 3600)
+            start_time: float = time.time() - (days * 24 * 3600)
 
             with self._db_lock:
                 self.cursor.execute('''
@@ -179,16 +181,16 @@ class TelemetryHandler:
                     ORDER BY timestamp ASC
                 ''', (start_time,))
 
-                columns = [description[0] for description in self.cursor.description]
-                rows = self.cursor.fetchall()
+                columns: List[str] = [description[0] for description in self.cursor.description]
+                rows: List[tuple] = self.cursor.fetchall()
 
-            data = []
+            data: List[Dict[str, Any]] = []
             for row in rows:
                 data.append(dict(zip(columns, row)))
 
             # Save to file
-            base_path = Path(self.config['storage']['base_path'])
-            export_path = base_path / 'telemetry' / f'export_{int(time.time())}.json'
+            base_path: Path = Path(self.config['storage']['base_path'])
+            export_path: Path = base_path / 'telemetry' / f'export_{int(time.time())}.json'
 
             with open(export_path, 'w') as f:
                 json.dump(data, f, indent=2)
@@ -200,10 +202,10 @@ class TelemetryHandler:
             self.logger.error(f"Error exporting telemetry: {e}")
             return None
 
-    def cleanup_old_files(self, days=30):
+    def cleanup_old_files(self, days: int = 30) -> None:
         """FIX: Thread-safe delete telemetry files older than specified days"""
         try:
-            cutoff_time = time.time() - (days * 24 * 3600)
+            cutoff_time: float = time.time() - (days * 24 * 3600)
 
             with self._db_lock:
                 # Delete old records from database

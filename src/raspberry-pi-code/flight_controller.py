@@ -1,110 +1,109 @@
 #!/usr/bin/env python3
 # Simplified Flight Controller for CubeSat
 # Lightweight implementation optimized for resource-constrained environments
+from __future__ import annotations
 
 import sys
 import io
-
-
-# Fix Windows console encoding
-if sys.platform == 'win32':
-    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
-    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
-
 import logging
 import time
-import serial
-import cv2
-import numpy as np
+import serial  # type: ignore
+import cv2  # type: ignore
+import numpy as np  # type: ignore
 import json
-import time
 import threading
 import queue
 import os
 import struct
 import hashlib
-import logging
-import sys
 from datetime import datetime
-from PIL import Image
+from PIL import Image  # type: ignore
+from pathlib import Path
+from typing import Optional, Dict, Any, List, Tuple, Union
 
+# Fix Windows console encoding
+if sys.platform == 'win32':
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+    sys.stderr = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 
-#import RPi.GPIO as GPIO
+# Import RPi.GPIO with mock fallback
 try:
-    import RPi.GPIO as GPIO # type: ignore
+    import RPi.GPIO as GPIO  # type: ignore
 except ImportError:
     print("Running in simulation mode (No GPIO hardware found)")
 
     class MockGPIO:
-        BCM = OUT = IN = HIGH = LOW = None
+        BCM: Optional[str] = 'BCM'
+        OUT: Optional[str] = 'OUT'
+        IN: Optional[str] = 'IN'
+        HIGH: Optional[int] = 1
+        LOW: Optional[int] = 0
 
-        def setmode(self, *args):
-            print("GPIO mode set")
+        def setmode(self, mode: Any) -> None:
+            print(f"GPIO mode set: {mode}")
 
-        def setup(self, *args):
-            print(f"GPIO setup: {args}")
+        def setup(self, pin: int, mode: Any) -> None:
+            print(f"GPIO setup: pin={pin}, mode={mode}")
 
-        def output(self, *args):
-            print(f"GPIO output: {args}")
+        def output(self, pin: int, state: Any) -> None:
+            print(f"GPIO output: pin={pin}, state={state}")
 
-        def cleanup(self):
+        def cleanup(self) -> None:
             print("GPIO cleanup")
 
-    GPIO = MockGPIO()
-
-
-from pathlib import Path
+    GPIO = MockGPIO()  # type: ignore
 
 # Import custom modules
 from camera_handler import CameraHandler
 from telemetry_handler import TelemetryHandler
 from communication import CommunicationHandler
-from logging_monitoring import initialize_logging_system, get_logger, SimpleHealthMonitor
+from logging_monitoring import initialize_logging_system, get_logger, SimpleHealthMonitor, SimpleLogger
 from ota_updater import OTAUpdater
 
 
 class CubeSatFlightController:
     """Simplified flight controller for Raspberry Pi with improved reliability"""
 
-    def __init__(self, config_file='config.json'):
+    def __init__(self, config_file: str = 'config.json') -> None:
         """Initialize the flight controller with improved reliability"""
 
         # Load configuration first
-        self.config = self.load_config(config_file)
+        self.config: Dict[str, Any] = self.load_config(config_file)
 
         # Initialize logging system
+        self.logger: logging.Logger
+        self.health_monitor: Optional[SimpleHealthMonitor]
         self.logger, self.health_monitor = initialize_logging_system(self.config)
         self.logger.info("=" * 60)
         self.logger.info("CubeSat 1U Flight Controller v1.0 - Simplified")
         self.logger.info("=" * 60)
 
         # System state
-        self.state = 'BOOT'
-        self.running = True
-        self.uptime = 0
-        self.sequence_number = 0
-        
+        self.state: str = 'BOOT'
+        self.running: bool = True
+        self.uptime: float = 0
+        self.sequence_number: int = 0
+
         # Power management
-        self.power_mode = 'NORMAL'  # NORMAL, LOW_POWER, CRITICAL
-        self.last_battery_check = 0
+        self.power_mode: str = 'NORMAL'  # NORMAL, LOW_POWER, CRITICAL
+        self.last_battery_check: float = 0
 
         # Initialize handlers
-        self.camera = CameraHandler(self.config)
-        self.telemetry = TelemetryHandler(self.config)
-        self.comm = CommunicationHandler(self.config)
+        self.camera: CameraHandler = CameraHandler(self.config)
+        self.telemetry: TelemetryHandler = TelemetryHandler(self.config)
+        self.comm: CommunicationHandler = CommunicationHandler(self.config)
 
         # Initialize OTA updater
-        self.ota_updater = OTAUpdater(self.config, self.logger)
+        self.ota_updater: OTAUpdater = OTAUpdater(self.config, self.logger)
 
         # Queues for inter-thread communication
-        self.telemetry_queue = queue.Queue(maxsize=50)  # Smaller queue for efficiency
-        self.command_queue = queue.Queue(maxsize=20)    # Smaller queue for efficiency
-        self.image_queue = queue.Queue(maxsize=5)       # Smaller queue for efficiency
-        self.downlink_queue = queue.Queue(maxsize=20)   # Smaller queue for efficiency
+        self.telemetry_queue: queue.Queue[Dict[str, Any]] = queue.Queue(maxsize=50)
+        self.command_queue: queue.Queue[Dict[str, Any]] = queue.Queue(maxsize=20)
+        self.image_queue: queue.Queue[Dict[str, Any]] = queue.Queue(maxsize=5)
+        self.downlink_queue: queue.Queue[Dict[str, Any]] = queue.Queue(maxsize=20)
 
         # Threads
-        self.threads = []
-        self.running = True
+        self.threads: List[threading.Thread] = []
 
         # Setup GPIO
         self.setup_gpio()
@@ -114,9 +113,9 @@ class CubeSatFlightController:
 
         self.logger.info("Flight controller initialized successfully")
 
-    def load_config(self, config_file):
+    def load_config(self, config_file: str) -> Dict[str, Any]:
         """Load configuration from JSON file"""
-        default_config = {
+        default_config: Dict[str, Any] = {
             "satellite": {
                 "name": "CubeSat-1U",
                 "mission_id": "CS1-2025",
@@ -145,13 +144,21 @@ class CubeSatFlightController:
                 "stm32_wake": 17,
                 "pi_ready": 27,
                 "led_status": 22
+            },
+            "power_management": {
+                "low_battery_threshold": 3.5,
+                "power_save_intervals": {
+                    "normal": 600,
+                    "low_battery": 1800,
+                    "critical_battery": 3600
+                }
             }
         }
 
         try:
             if os.path.exists(config_file):
                 with open(config_file, 'r') as f:
-                    loaded_config = json.load(f)
+                    loaded_config: Dict[str, Any] = json.load(f)
                     # Merge with default
                     for key in default_config:
                         if key not in loaded_config:
@@ -166,25 +173,25 @@ class CubeSatFlightController:
             self.logger.error(f"Error loading config: {e}")
             return default_config
 
-    def setup_gpio(self):
+    def setup_gpio(self) -> None:
         """Setup GPIO pins with error handling"""
         try:
-            GPIO.setmode(GPIO.BCM)
-            GPIO.setup(self.config['gpio']['stm32_wake'], GPIO.IN)
-            GPIO.setup(self.config['gpio']['pi_ready'], GPIO.OUT)
-            GPIO.setup(self.config['gpio']['led_status'], GPIO.OUT)
+            GPIO.setmode(GPIO.BCM)  # type: ignore
+            GPIO.setup(self.config['gpio']['stm32_wake'], GPIO.IN)  # type: ignore
+            GPIO.setup(self.config['gpio']['pi_ready'], GPIO.OUT)  # type: ignore
+            GPIO.setup(self.config['gpio']['led_status'], GPIO.OUT)  # type: ignore
 
             # Set Pi ready signal
-            GPIO.output(self.config['gpio']['pi_ready'], GPIO.HIGH)
+            GPIO.output(self.config['gpio']['pi_ready'], GPIO.HIGH)  # type: ignore
 
             self.logger.info("GPIO initialized")
         except Exception as e:
             self.logger.error(f"GPIO setup error: {e}")
 
-    def start_threads(self):
+    def start_threads(self) -> None:
         """Start all background threads with error handling"""
 
-        thread_configs = [
+        thread_configs: List[Tuple[str, Any]] = [
             ("STM32 Reader", self.stm32_reader_thread),
             ("STM32 Writer", self.stm32_writer_thread),
             ("Command Processor", self.command_processor_thread),
@@ -198,7 +205,7 @@ class CubeSatFlightController:
 
         for name, target in thread_configs:
             try:
-                thread = threading.Thread(target=target, name=name, daemon=True)
+                thread: threading.Thread = threading.Thread(target=target, name=name, daemon=True)
                 thread.start()
                 self.threads.append(thread)
                 self.logger.info(f"Started thread: {name}")
@@ -207,18 +214,18 @@ class CubeSatFlightController:
 
         self.state = 'NOMINAL'
 
-    def stm32_reader_thread(self):
+    def stm32_reader_thread(self) -> None:
         """Read data from STM32 via UART with improved error handling"""
-        consecutive_errors = 0
-        max_consecutive_errors = 5
-        
+        consecutive_errors: int = 0
+        max_consecutive_errors: int = 5
+
         while self.running:
             try:
                 if self.comm.stm32_serial and self.comm.stm32_serial.in_waiting >= 40:
-                    data = self.comm.stm32_serial.read(self.comm.stm32_serial.in_waiting)
+                    data: bytes = self.comm.stm32_serial.read(self.comm.stm32_serial.in_waiting)
 
                     # Process telemetry packets
-                    packets = self.comm.parse_incoming_data(data)
+                    packets: List[Dict[str, Any]] = self.comm.parse_incoming_data(data)
                     for packet in packets:
                         if packet['type'] == 'telemetry':
                             try:
@@ -227,14 +234,14 @@ class CubeSatFlightController:
                                 self.logger.warning("Telemetry queue full, dropping packet")
                         elif packet['type'] == 'command_response':
                             self.logger.info(f"Command response: {packet['data']}")
-                
+
                 # Reset error counter on success
                 consecutive_errors = 0
 
             except Exception as e:
                 consecutive_errors += 1
                 self.logger.error(f"STM32 reader error: {e}")
-                
+
                 # If too many consecutive errors, try to reconnect
                 if consecutive_errors >= max_consecutive_errors:
                     self.logger.warning("Too many consecutive errors, attempting recovery...")
@@ -243,23 +250,23 @@ class CubeSatFlightController:
 
             time.sleep(0.01)
 
-    def stm32_writer_thread(self):
+    def stm32_writer_thread(self) -> None:
         """Send commands to STM32 with improved error handling"""
-        consecutive_errors = 0
-        max_consecutive_errors = 3
-        
+        consecutive_errors: int = 0
+        max_consecutive_errors: int = 3
+
         while self.running:
             try:
                 if not self.command_queue.empty():
-                    cmd = self.command_queue.get_nowait()
-                    success = self.comm.send_to_stm32(cmd)
-                    
+                    cmd: Dict[str, Any] = self.command_queue.get_nowait()
+                    success: bool = self.comm.send_to_stm32(cmd)
+
                     if not success:
                         self.logger.warning("Failed to send command to STM32")
                         consecutive_errors += 1
                     else:
                         consecutive_errors = 0  # Reset on success
-                        
+
             except queue.Empty:
                 pass
             except Exception as e:
@@ -273,19 +280,19 @@ class CubeSatFlightController:
 
             time.sleep(0.01)
 
-    def command_processor_thread(self):
+    def command_processor_thread(self) -> None:
         """Process commands from STM32 or ground station with improved error handling"""
-        consecutive_errors = 0
-        max_consecutive_errors = 3
-        
+        consecutive_errors: int = 0
+        max_consecutive_errors: int = 3
+
         while self.running:
             try:
                 # Check for commands from STM32 (forwarded from ground)
                 if not self.comm.command_queue.empty():
-                    cmd = self.comm.command_queue.get_nowait()
+                    cmd: Dict[str, Any] = self.comm.command_queue.get_nowait()
                     self.execute_command(cmd)
                     consecutive_errors = 0  # Reset on success
-                    
+
             except queue.Empty:
                 pass
             except Exception as e:
@@ -299,23 +306,23 @@ class CubeSatFlightController:
 
             time.sleep(0.1)
 
-    def execute_command(self, cmd):
+    def execute_command(self, cmd: Dict[str, Any]) -> None:
         """CRITICAL FIX #105: Execute a received command with authentication for critical commands"""
         try:
             self.logger.info(f"Executing command: {cmd}")
 
-            cmd_type = cmd.get('type')
-            params = cmd.get('params', {})
+            cmd_type: Optional[str] = cmd.get('type')
+            params: Dict[str, Any] = cmd.get('params', {})
 
             # CRITICAL FIX #105: Require authentication for critical commands
-            CRITICAL_COMMANDS = ['REBOOT', 'SHUTDOWN', 'START_UPDATE']
+            CRITICAL_COMMANDS: List[str] = ['REBOOT', 'SHUTDOWN', 'START_UPDATE']
             if cmd_type in CRITICAL_COMMANDS:
                 if not self._validate_critical_command(cmd):
                     self.logger.warning(f"Unauthorized critical command blocked: {cmd_type}")
                     return
 
             if cmd_type == 'PING':
-                response = {'type': 'PONG', 'timestamp': time.time()}
+                response: Dict[str, Any] = {'type': 'PONG', 'timestamp': time.time()}
                 self.comm.send_to_stm32(response)
 
             elif cmd_type == 'CAPTURE_IMAGE':
@@ -325,15 +332,14 @@ class CubeSatFlightController:
 
             elif cmd_type == 'GET_TELEMETRY':
                 # Send latest telemetry
-                latest = self.telemetry.get_latest()
+                latest: Dict[str, Any] = self.telemetry.get_latest()
                 self.comm.send_to_stm32(latest)
 
             elif cmd_type == 'TRANSMIT_FILE':
                 # MEDIUM FIX: Validate file path to prevent path traversal
-                filename = params.get('filename')
+                filename: Optional[str] = params.get('filename')
                 if filename:
                     # Sanitize filename - only allow basename
-                    import os
                     filename = os.path.basename(filename)
                     if filename and os.path.exists(filename):
                         self.downlink_queue.put({
@@ -346,14 +352,14 @@ class CubeSatFlightController:
 
             elif cmd_type == 'SET_SCHEDULE':
                 # Update capture schedule
-                interval = params.get('interval', 600)
+                interval: int = params.get('interval', 600)
                 self.config['camera']['capture_interval'] = interval
                 self.logger.info(f"Capture interval updated to {interval}s")
 
             elif cmd_type == 'GET_STATUS':
-                status = {
+                status: Dict[str, Any] = {
                     'state': self.state,
-                    'uptime': self.uptime,
+                    'uptime': int(self.uptime),
                     'free_space': self.get_free_space(),
                     'temp': self.get_cpu_temperature(),
                     'images': self.get_image_count()
@@ -362,7 +368,7 @@ class CubeSatFlightController:
 
             elif cmd_type == 'CHECK_UPDATES':
                 # Check for system updates
-                update_info = self.ota_updater.check_for_updates()
+                update_info: Optional[Dict[str, Any]] = self.ota_updater.check_for_updates()
                 response = {
                     'type': 'UPDATE_INFO',
                     'available': update_info is not None,
@@ -373,7 +379,7 @@ class CubeSatFlightController:
 
             elif cmd_type == 'GET_SYSTEM_INFO':
                 # Get detailed system information
-                sys_info = self.ota_updater.get_system_info()
+                sys_info: Dict[str, Any] = self.ota_updater.get_system_info()
                 response = {
                     'type': 'SYSTEM_INFO',
                     'info': sys_info
@@ -403,24 +409,22 @@ class CubeSatFlightController:
         except Exception as e:
             self.logger.error(f"Error executing command {cmd}: {e}")
 
-    def _validate_critical_command(self, cmd) -> bool:
+    def _validate_critical_command(self, cmd: Dict[str, Any]) -> bool:
         """
         CRITICAL FIX #105: Validate critical commands with HMAC signature
-        
+
         Args:
             cmd: Command dictionary
-            
+
         Returns:
             True if command is authenticated
         """
         import hmac
-        import hashlib
-        import os
         import time
 
         # Get signature and timestamp from command
-        signature = cmd.get('signature')
-        timestamp = cmd.get('timestamp')
+        signature: Optional[str] = cmd.get('signature')
+        timestamp: Optional[float] = cmd.get('timestamp')
 
         if not signature or not timestamp:
             self.logger.error("Critical command missing signature or timestamp")
@@ -432,17 +436,17 @@ class CubeSatFlightController:
             return False
 
         # Get secret key from environment
-        secret_key = os.environ.get('CUBESAT_SHARED_SECRET', '')
+        secret_key: str = os.environ.get('CUBESAT_SHARED_SECRET', '')
         if not secret_key:
             self.logger.warning("CUBESAT_SHARED_SECRET not set, allowing command for testing")
             return True
 
         # Create data for verification (all fields except signature)
-        cmd_copy = {k: v for k, v in cmd.items() if k != 'signature'}
-        cmd_data = json.dumps(cmd_copy, sort_keys=True).encode('utf-8')
+        cmd_copy: Dict[str, Any] = {k: v for k, v in cmd.items() if k != 'signature'}
+        cmd_data: bytes = json.dumps(cmd_copy, sort_keys=True).encode('utf-8')
 
         # Calculate expected signature
-        expected_signature = hmac.new(
+        expected_signature: str = hmac.new(
             secret_key.encode('utf-8'),
             cmd_data,
             hashlib.sha256
@@ -456,21 +460,27 @@ class CubeSatFlightController:
         self.logger.info("Critical command authenticated successfully")
         return True
 
-    def image_capture_thread(self):
+    def image_capture_thread(self) -> None:
         """Scheduled image capture thread with power management"""
-        last_capture = 0
+        last_capture: float = 0
 
         while self.running:
             try:
-                current_time = time.time()
+                current_time: float = time.time()
 
                 # Get appropriate interval based on power mode
+                power_save_intervals: Dict[str, int] = self.config.get('power_management', {}).get('power_save_intervals', {
+                    'normal': 600,
+                    'low_battery': 1800,
+                    'critical_battery': 3600
+                })
+
                 if self.power_mode == 'CRITICAL':
-                    interval = self.config['power_management']['power_save_intervals']['critical_battery']
+                    interval: int = power_save_intervals.get('critical_battery', 3600)
                 elif self.power_mode == 'LOW_POWER':
-                    interval = self.config['power_management']['power_save_intervals']['low_battery']
+                    interval = power_save_intervals.get('low_battery', 1800)
                 else:
-                    interval = self.config['power_management']['power_save_intervals']['normal']
+                    interval = power_save_intervals.get('normal', 600)
 
                 # Check if it's time to capture
                 if current_time - last_capture >= interval:
@@ -484,20 +494,20 @@ class CubeSatFlightController:
 
             time.sleep(1)
 
-    def image_compressor_thread(self):
+    def image_compressor_thread(self) -> None:
         """Compress images using SVD for efficient downlink with improved error handling"""
-        consecutive_errors = 0
-        max_consecutive_errors = 3
-        
+        consecutive_errors: int = 0
+        max_consecutive_errors: int = 3
+
         while self.running:
             try:
                 if not self.image_queue.empty():
-                    image_info = self.image_queue.get_nowait()
+                    image_info: Dict[str, Any] = self.image_queue.get_nowait()
 
                     self.logger.info(f"Compressing image: {image_info['filename']}")
 
                     # Compress the image
-                    compressed_path = self.camera.compress_image(
+                    compressed_path: Optional[str] = self.camera.compress_image(
                         image_info['filename'],
                         self.config['camera']['svd_components']
                     )
@@ -513,7 +523,7 @@ class CubeSatFlightController:
                         })
 
                         # Generate thumbnail for quick preview
-                        thumbnail_path = self.camera.create_thumbnail(
+                        thumbnail_path: Optional[str] = self.camera.create_thumbnail(
                             image_info['filename']
                         )
                         if thumbnail_path:
@@ -523,7 +533,7 @@ class CubeSatFlightController:
                                 'timestamp': image_info['timestamp'],
                                 'priority': 3
                             })
-                    
+
                     consecutive_errors = 0  # Reset on success
 
             except queue.Empty:
@@ -539,15 +549,15 @@ class CubeSatFlightController:
 
             time.sleep(0.1)
 
-    def telemetry_logger_thread(self):
+    def telemetry_logger_thread(self) -> None:
         """Log telemetry data to SD card with improved error handling"""
-        consecutive_errors = 0
-        max_consecutive_errors = 3
-        
+        consecutive_errors: int = 0
+        max_consecutive_errors: int = 3
+
         while self.running:
             try:
                 if not self.telemetry_queue.empty():
-                    telemetry = self.telemetry_queue.get_nowait()
+                    telemetry: Dict[str, Any] = self.telemetry_queue.get_nowait()
                     self.telemetry.save_telemetry(telemetry)
                     consecutive_errors = 0  # Reset on success
 
@@ -564,25 +574,26 @@ class CubeSatFlightController:
 
             time.sleep(0.1)
 
-    def downlink_manager_thread(self):
+    def downlink_manager_thread(self) -> None:
         """Manage data downlink to ground station with improved error handling"""
-        last_beacon = 0
-        consecutive_errors = 0
-        max_consecutive_errors = 3
+        last_beacon: float = 0
+        consecutive_errors: int = 0
+        max_consecutive_errors: int = 3
 
         while self.running:
             try:
-                current_time = time.time()
+                current_time: float = time.time()
 
                 # Send beacon every 30 seconds
-                if current_time - last_beacon >= self.config['communication']['beacon_interval']:
+                beacon_interval: int = self.config['communication']['beacon_interval']
+                if current_time - last_beacon >= beacon_interval:
                     self.send_beacon()
                     last_beacon = current_time
 
                 # Process downlink queue
                 if not self.downlink_queue.empty():
                     # Get highest priority item
-                    items = []
+                    items: List[Dict[str, Any]] = []
                     while not self.downlink_queue.empty():
                         items.append(self.downlink_queue.get_nowait())
 
@@ -613,17 +624,17 @@ class CubeSatFlightController:
 
             time.sleep(1)
 
-    def send_beacon(self):
+    def send_beacon(self) -> None:
         """Send status beacon with priority telemetry"""
         try:
             # Get priority telemetry data
-            priority_data = self.get_priority_telemetry()
-            
-            beacon = {
+            priority_data: Dict[str, Any] = self.get_priority_telemetry()
+
+            beacon: Dict[str, Any] = {
                 'type': 'BEACON',
                 'timestamp': time.time(),
                 'state': self.state,
-                'uptime': self.uptime,
+                'uptime': int(self.uptime),
                 'battery': priority_data.get('battery_voltage', self.telemetry.get_latest_battery()),
                 'power_mode': priority_data.get('power_mode', 'NORMAL'),
                 'cpu_temp': priority_data.get('cpu_temp', 0),
@@ -637,7 +648,7 @@ class CubeSatFlightController:
         except Exception as e:
             self.logger.error(f"Error sending beacon: {e}")
 
-    def send_to_ground(self, data):
+    def send_to_ground(self, data: Dict[str, Any]) -> None:
         """Send data to ground station via radio"""
         try:
             self.logger.info(f"Sending to ground: {data.get('type')}")
@@ -651,24 +662,24 @@ class CubeSatFlightController:
         except Exception as e:
             self.logger.error(f"Error sending to ground: {e}")
 
-    def system_health_monitor_thread(self):
+    def system_health_monitor_thread(self) -> None:
         """Simplified system health monitoring with power management"""
-        check_interval = 60  # Increased interval for efficiency
-        last_check = 0
+        check_interval: int = 60  # Increased interval for efficiency
+        last_check: float = 0
 
         while self.running:
             try:
-                current_time = time.time()
+                current_time: float = time.time()
 
                 if current_time - last_check >= check_interval:
                     # Check disk space
-                    free_space = self.get_free_space()
+                    free_space: float = self.get_free_space()
                     if free_space < self.config['storage']['min_free_space_gb']:
                         self.logger.warning(f"Low disk space: {free_space:.2f} GB")
                         self.cleanup_old_files()
 
                     # Check temperature
-                    temp = self.get_cpu_temperature()
+                    temp: float = self.get_cpu_temperature()
                     if temp > 75:  # Increased threshold slightly
                         self.logger.warning(f"High CPU temperature: {temp}°C")
 
@@ -676,7 +687,7 @@ class CubeSatFlightController:
                     self.update_power_mode()
 
                     # Check thread health
-                    dead_threads = []
+                    dead_threads: List[str] = []
                     for thread in self.threads:
                         if not thread.is_alive():
                             dead_threads.append(thread.name)
@@ -696,15 +707,17 @@ class CubeSatFlightController:
 
             time.sleep(10)
 
-    def update_power_mode(self):
+    def update_power_mode(self) -> None:
         """Update power mode based on battery level"""
         try:
             # Get latest battery voltage from telemetry
-            latest_telemetry = self.telemetry.get_latest()
-            battery_voltage = latest_telemetry.get('battery_voltage', 4.2)  # Default to full charge
+            latest_telemetry: Dict[str, Any] = self.telemetry.get_latest()
+            battery_voltage: float = latest_telemetry.get('battery_voltage', 4.2)  # Default to full charge
+
+            low_battery_threshold: float = self.config.get('power_management', {}).get('low_battery_threshold', 3.5)
 
             # Update power mode based on battery level
-            if battery_voltage < self.config['power_management']['low_battery_threshold']:
+            if battery_voltage < low_battery_threshold:
                 if self.power_mode != 'LOW_POWER':
                     self.power_mode = 'LOW_POWER'
                     self.logger.info(f"Switched to LOW_POWER mode (battery: {battery_voltage:.2f}V)")
@@ -720,11 +733,11 @@ class CubeSatFlightController:
         except Exception as e:
             self.logger.error(f"Error updating power mode: {e}")
 
-    def get_priority_telemetry(self):
+    def get_priority_telemetry(self) -> Dict[str, Any]:
         """Get critical telemetry data with priority"""
         try:
-            latest = self.telemetry.get_latest()
-            critical_data = {
+            latest: Dict[str, Any] = self.telemetry.get_latest()
+            critical_data: Dict[str, Any] = {
                 'timestamp': latest.get('timestamp'),
                 'battery_voltage': latest.get('battery_voltage'),
                 'temperature_bme': latest.get('temperature_bme'),
@@ -738,9 +751,9 @@ class CubeSatFlightController:
             self.logger.error(f"Error getting priority telemetry: {e}")
             return {}
 
-    def restart_dead_threads(self, dead_thread_names):
+    def restart_dead_threads(self, dead_thread_names: List[str]) -> None:
         """Restart dead threads with error handling"""
-        thread_map = {
+        thread_map: Dict[str, Any] = {
             "STM32 Reader": self.stm32_reader_thread,
             "STM32 Writer": self.stm32_writer_thread,
             "Command Processor": self.command_processor_thread,
@@ -755,7 +768,11 @@ class CubeSatFlightController:
         for thread_name in dead_thread_names:
             if thread_name in thread_map:
                 try:
-                    new_thread = threading.Thread(target=thread_map[thread_name], name=thread_name, daemon=True)
+                    new_thread: threading.Thread = threading.Thread(
+                        target=thread_map[thread_name], 
+                        name=thread_name, 
+                        daemon=True
+                    )
                     new_thread.start()
                     # Replace the dead thread in the list
                     for i, t in enumerate(self.threads):
@@ -766,77 +783,79 @@ class CubeSatFlightController:
                 except Exception as e:
                     self.logger.error(f"Failed to restart thread {thread_name}: {e}")
 
-    def status_led_thread(self):
+    def status_led_thread(self) -> None:
         """Control status LED with improved reliability"""
         while self.running:
             try:
+                led_pin: int = self.config['gpio']['led_status']
+                
                 if self.state == 'NOMINAL':
                     # Heartbeat: slow blink
-                    GPIO.output(self.config['gpio']['led_status'], GPIO.HIGH)
+                    GPIO.output(led_pin, GPIO.HIGH)  # type: ignore
                     time.sleep(1)
-                    GPIO.output(self.config['gpio']['led_status'], GPIO.LOW)
+                    GPIO.output(led_pin, GPIO.LOW)  # type: ignore
                     time.sleep(1)
                 elif self.state == 'IMAGE_CAPTURE':
                     # Fast blink during capture
                     for _ in range(5):
-                        GPIO.output(self.config['gpio']['led_status'], GPIO.HIGH)
+                        GPIO.output(led_pin, GPIO.HIGH)  # type: ignore
                         time.sleep(0.1)
-                        GPIO.output(self.config['gpio']['led_status'], GPIO.LOW)
+                        GPIO.output(led_pin, GPIO.LOW)  # type: ignore
                         time.sleep(0.1)
                 elif self.state == 'DATA_TX':
                     # Double blink during transmission
-                    GPIO.output(self.config['gpio']['led_status'], GPIO.HIGH)
+                    GPIO.output(led_pin, GPIO.HIGH)  # type: ignore
                     time.sleep(0.2)
-                    GPIO.output(self.config['gpio']['led_status'], GPIO.LOW)
+                    GPIO.output(led_pin, GPIO.LOW)  # type: ignore
                     time.sleep(0.2)
-                    GPIO.output(self.config['gpio']['led_status'], GPIO.HIGH)
+                    GPIO.output(led_pin, GPIO.HIGH)  # type: ignore
                     time.sleep(0.2)
-                    GPIO.output(self.config['gpio']['led_status'], GPIO.LOW)
+                    GPIO.output(led_pin, GPIO.LOW)  # type: ignore
                     time.sleep(0.4)
                 elif self.state == 'ERROR':
                     # Continuous fast blink for error
-                    GPIO.output(self.config['gpio']['led_status'], GPIO.HIGH)
+                    GPIO.output(led_pin, GPIO.HIGH)  # type: ignore
                     time.sleep(0.1)
-                    GPIO.output(self.config['gpio']['led_status'], GPIO.LOW)
+                    GPIO.output(led_pin, GPIO.LOW)  # type: ignore
                     time.sleep(0.1)
                 else:
                     # Solid on for boot/safe mode
-                    GPIO.output(self.config['gpio']['led_status'], GPIO.HIGH)
+                    GPIO.output(led_pin, GPIO.HIGH)  # type: ignore
                     time.sleep(2)
-                    
+
             except Exception as e:
                 self.logger.error(f"LED control error: {e}")
                 time.sleep(1)  # Brief pause on error
 
-    def get_free_space(self):
+    def get_free_space(self) -> float:
         """Get free space on SD card in GB"""
         try:
             statvfs = os.statvfs(self.config['storage']['base_path'])
-            free_space = statvfs.f_frsize * statvfs.f_bavail / (1024**3)
+            free_space: float = statvfs.f_frsize * statvfs.f_bavail / (1024**3)
             return free_space
-        except:
-            return 0
+        except Exception:
+            return 0.0
 
-    def get_cpu_temperature(self):
+    def get_cpu_temperature(self) -> float:
         """Get CPU temperature"""
         try:
             with open('/sys/class/thermal/thermal_zone0/temp', 'r') as f:
-                temp = int(f.read()) / 1000
+                temp: float = int(f.read()) / 1000
             return temp
-        except:
-            return 0
+        except Exception:
+            return 0.0
 
-    def get_image_count(self):
+    def get_image_count(self) -> int:
         """Get number of stored images"""
         try:
-            image_path = os.path.join(self.config['storage']['base_path'], 'images')
+            image_path: str = os.path.join(self.config['storage']['base_path'], 'images')
             if os.path.exists(image_path):
                 return len([f for f in os.listdir(image_path) if f.endswith('.jpg')])
-        except:
+        except Exception:
             pass
         return 0
 
-    def cleanup_old_files(self):
+    def cleanup_old_files(self) -> None:
         """Delete oldest files when space is low"""
         try:
             self.logger.info("Cleaning up old files")
@@ -845,13 +864,16 @@ class CubeSatFlightController:
             self.telemetry.cleanup_old_files(days=30)
 
             # Clean old images
-            image_path = os.path.join(self.config['storage']['base_path'], 'images')
+            image_path: str = os.path.join(self.config['storage']['base_path'], 'images')
             if os.path.exists(image_path):
-                images = sorted([os.path.join(image_path, f) for f in os.listdir(image_path)
-                               if f.startswith('raw_')])
+                images: List[str] = sorted([
+                    os.path.join(image_path, f) 
+                    for f in os.listdir(image_path)
+                    if f.startswith('raw_')
+                ])
 
                 # Delete oldest 20%
-                delete_count = max(1, len(images) // 5)
+                delete_count: int = max(1, len(images) // 5)
                 for f in images[:delete_count]:
                     try:
                         os.remove(f)
@@ -861,7 +883,7 @@ class CubeSatFlightController:
         except Exception as e:
             self.logger.error(f"Error during file cleanup: {e}")
 
-    def shutdown(self):
+    def shutdown(self) -> None:
         """Graceful shutdown with improved error handling"""
         try:
             self.logger.info("Shutting down flight controller...")
@@ -879,7 +901,7 @@ class CubeSatFlightController:
             # Cleanup
             self.camera.cleanup()
             self.comm.cleanup()
-            GPIO.cleanup()
+            GPIO.cleanup()  # type: ignore
 
             self.logger.info("Shutdown complete")
         except Exception as e:
@@ -887,7 +909,7 @@ class CubeSatFlightController:
 
 
 if __name__ == '__main__':
-    controller = CubeSatFlightController()
+    controller: CubeSatFlightController = CubeSatFlightController()
 
     try:
         while True:
