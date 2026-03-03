@@ -6,10 +6,9 @@ import hashlib
 import hmac
 import time
 import secrets
-from typing import Dict, Optional, Tuple
+from typing import Dict, Optional, Tuple, Any
 import json
-import struct
-import threading  # FIX: Add threading for thread-safe nonce handling
+import threading
 
 
 class SecurityManager:
@@ -18,7 +17,7 @@ class SecurityManager:
     Lightweight implementation for resource constraints
     """
 
-    def __init__(self, shared_secret: str = None):
+    def __init__(self, shared_secret: Optional[str] = None) -> None:
         """
         Initialize security manager
 
@@ -26,16 +25,12 @@ class SecurityManager:
             shared_secret: Shared secret key for HMAC signatures
         """
         if shared_secret is None:
-            # Generate a random secret key
-            self.shared_secret = secrets.token_hex(16)  # Smaller key for efficiency
+            self.shared_secret = secrets.token_hex(16)
         else:
             self.shared_secret = shared_secret
 
-        # Dictionary to track nonces (one-time numbers)
-        self.nonce_registry = {}
-        # Nonce time-to-live in seconds
-        self.nonce_ttl = 60  # Reduced TTL for CubeSat (1 minute)
-        # FIX: Add thread lock for thread-safe nonce operations
+        self.nonce_registry: Dict[str, float] = {}
+        self.nonce_ttl = 60
         self._nonce_lock = threading.Lock()
 
     def generate_nonce(self) -> str:
@@ -45,7 +40,7 @@ class SecurityManager:
         Returns:
             Random one-time number
         """
-        return secrets.token_hex(8)  # Smaller nonce for efficiency
+        return secrets.token_hex(8)
 
     def is_nonce_valid(self, nonce: str) -> bool:
         """
@@ -59,31 +54,25 @@ class SecurityManager:
         """
         current_time = time.time()
 
-        # FIX: Thread-safe nonce check
         with self._nonce_lock:
-            # Check if nonce exists
             if nonce in self.nonce_registry:
-                # Check lifetime
                 timestamp = self.nonce_registry[nonce]
                 if current_time - timestamp > self.nonce_ttl:
-                    # Remove expired nonce
                     del self.nonce_registry[nonce]
                     return False
                 return True
         return False
 
-    def register_nonce(self, nonce: str):
+    def register_nonce(self, nonce: str) -> None:
         """
         Register nonce as used
 
         Args:
             nonce: One-time number to register
         """
-        # FIX: Thread-safe nonce registration
         with self._nonce_lock:
             self.nonce_registry[nonce] = time.time()
 
-            # Clean up expired nonces periodically
             current_time = time.time()
             expired_nonces = [
                 n for n, t in self.nonce_registry.items()
@@ -92,7 +81,7 @@ class SecurityManager:
             for n in expired_nonces:
                 del self.nonce_registry[n]
 
-    def create_signature(self, data: bytes, timestamp: float = None) -> str:
+    def create_signature(self, data: bytes, timestamp: Optional[float] = None) -> str:
         """
         Create digital signature for data
 
@@ -106,10 +95,8 @@ class SecurityManager:
         if timestamp is None:
             timestamp = time.time()
 
-        # Create message for signing: data + timestamp
         message = data + str(timestamp).encode('utf-8')
 
-        # Create HMAC signature
         signature = hmac.new(
             self.shared_secret.encode('utf-8'),
             message,
@@ -118,7 +105,7 @@ class SecurityManager:
 
         return signature
 
-    def verify_signature(self, data: bytes, signature: str, timestamp: float = None) -> bool:
+    def verify_signature(self, data: bytes, signature: str, timestamp: Optional[float] = None) -> bool:
         """
         Verify digital signature
 
@@ -136,8 +123,13 @@ class SecurityManager:
         expected_signature = self.create_signature(data, timestamp)
         return hmac.compare_digest(expected_signature, signature)
 
-    def authenticate_command(self, command_data: Dict, signature: str, nonce: str,
-                           timestamp: float) -> Tuple[bool, str]:
+    def authenticate_command(
+        self,
+        command_data: Dict[str, Any],
+        signature: str,
+        nonce: str,
+        timestamp: float
+    ) -> Tuple[bool, str]:
         """
         Authenticate command from ground station
 
@@ -150,27 +142,27 @@ class SecurityManager:
         Returns:
             Tuple (success, error message)
         """
-        # Check time - command should be recent (not older than 15 sec)
         current_time = time.time()
-        if abs(current_time - timestamp) > 15:  # Reduced from 30 to 15 seconds
+        if abs(current_time - timestamp) > 15:
             return False, "Command too old"
 
-        # Check nonce uniqueness
         if self.is_nonce_valid(nonce):
             return False, "Nonce already used"
 
-        # Verify signature
         command_json = json.dumps(command_data, sort_keys=True).encode('utf-8')
         if not self.verify_signature(command_json, signature, timestamp):
             return False, "Invalid signature"
 
-        # Register nonce as used
         self.register_nonce(nonce)
 
         return True, "Authentication successful"
 
 
-def create_secure_command(command_id: int, params: Dict = None, security_manager: SecurityManager = None) -> Dict:
+def create_secure_command(
+    command_id: int,
+    params: Optional[Dict[str, Any]] = None,
+    security_manager: Optional[SecurityManager] = None
+) -> Dict[str, Any]:
     """
     Create a secure authenticated command
 
@@ -188,25 +180,25 @@ def create_secure_command(command_id: int, params: Dict = None, security_manager
     if params is None:
         params = {}
 
-    # Create command
-    command = {
+    command: Dict[str, Any] = {
         'command_id': command_id,
         'params': params,
         'timestamp': time.time(),
         'nonce': security_manager.generate_nonce()
     }
 
-    # Create signature
     command_json = json.dumps(command, sort_keys=True).encode('utf-8')
     signature = security_manager.create_signature(command_json, command['timestamp'])
 
-    # Add signature to command
     command['signature'] = signature
 
     return command
 
 
-def validate_secure_command(command: Dict, security_manager: SecurityManager) -> Tuple[bool, str]:
+def validate_secure_command(
+    command: Dict[str, Any],
+    security_manager: SecurityManager
+) -> Tuple[bool, str]:
     """
     Validate a secure command
 
@@ -220,16 +212,13 @@ def validate_secure_command(command: Dict, security_manager: SecurityManager) ->
     if 'signature' not in command or 'nonce' not in command or 'timestamp' not in command:
         return False, "Missing security fields"
 
-    # Extract data for verification
     signature = command['signature']
     nonce = command['nonce']
     timestamp = command['timestamp']
 
-    # Remove security fields for signature verification
     cmd_copy = command.copy()
     del cmd_copy['signature']
 
-    # Authenticate command
     success, msg = security_manager.authenticate_command(cmd_copy, signature, nonce, timestamp)
 
     return success, msg
