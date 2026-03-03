@@ -268,7 +268,60 @@ python3 run_all_tests_simulated.py
 
 # Отдельные модули
 python3 -m pytest tests/unit/
+
+# Запуск конкретных тестовых модулей
+python3 tests/unit/test_security.py
+python3 tests/unit/test_communication.py
+python3 tests/unit/test_main.py
 ```
+
+### Модульные Тесты
+
+#### Security Module (`tests/unit/test_security.py`)
+
+Комплексные тесты для модуля безопасности `SecurityManager`:
+
+| Категория Тестов | Описание | Кол-во Тестов |
+|-----------------|----------|---------------|
+| **Nonce Generation** | Генерация уникальных случайных nonce | 5 |
+| **Nonce Validation** | Валидация и TTL nonce, очистка expired | 6 |
+| **Signature Creation** | Создание HMAC-SHA256 подписей | 8 |
+| **Signature Verification** | Проверка подписей, timing-safe comparison | 5 |
+| **Command Authentication** | Аутентификация команд, проверка timestamp | 6 |
+| **Replay Attack Prevention** | Предотвращение replay атак | 1 |
+| **Thread Safety** | Thread-safe операции с nonce | 3 |
+| **Helper Functions** | `create_secure_command`, `validate_secure_command` | 11 |
+| **Edge Cases** | Unicode, binary data, empty data | 7 |
+
+**Ключевые тестируемые функции:**
+- `SecurityManager.generate_nonce()` - генерация криптографически стойких nonce
+- `SecurityManager.is_nonce_valid()` / `register_nonce()` - валидация и регистрация
+- `SecurityManager.create_signature()` / `verify_signature()` - HMAC подписи
+- `SecurityManager.authenticate_command()` - полная аутентификация команд
+- `create_secure_command()` / `validate_secure_command()` - helper функции
+
+#### Communication Module (`tests/unit/test_communication.py`)
+
+Комплексные тесты для модуля связи `CommunicationHandler`:
+
+| Категория Тестов | Описание | Кол-во Тестов |
+|-----------------|----------|---------------|
+| **Initialization** | Инициализация handler, protocol constants | 5 |
+| **Packet Parsing** | Парсинг telemetry/command/image пакетов | 9 |
+| **Rate Limiting** | Rate limiting (100 команд/мин), window expiration | 4 |
+| **UDP Operations** | Отправка/получение UDP, error handling | 5 |
+| **Secure Command Validation** | Валидация secure команд через security manager | 4 |
+| **Serial Operations** | Отправка через UART (STM32, Radio) | 5 |
+| **Cleanup** | Закрытие соединений, остановка threads | 4 |
+| **Edge Cases** | Malformed packets, truncated data, concurrent parsing | 5 |
+
+**Ключевые тестируемые функции:**
+- `CommunicationHandler.parse_incoming_data()` - парсинг бинарных пакетов
+- `CommunicationHandler.process_udp_data()` / `process_radio_data()` - обработка
+- `CommunicationHandler._check_rate_limit()` - rate limiting
+- `CommunicationHandler.send_to_stm32()` / `send_to_radio()` / `send_to_ground_station()`
+- `CommunicationHandler.build_command_packet()` - построение командных пакетов
+- `CommunicationHandler.cleanup()` - корректная очистка ресурсов
 
 ### Проверка Модулей
 
@@ -282,6 +335,15 @@ from communication import CommunicationHandler
 print('✓ Все модули импортируются успешно')
 "
 ```
+
+### Покрытие Тестами
+
+| Модуль | Файл Тестов | Статус |
+|--------|-------------|--------|
+| `security.py` | `tests/unit/test_security.py` | ✅ 52 теста |
+| `communication.py` | `tests/unit/test_communication.py` | ✅ 41 тест |
+| `flight_controller.py` | `tests/unit/test_main.py` | ✅ 3 теста |
+| `telemetry_handler.py` | `tests/unit/test_main.py` | ✅ 1 тест |
 
 ---
 
