@@ -18,33 +18,28 @@ class SimpleLogger:
     Simplified logger optimized for CubeSat resource constraints
     """
 
-    def __init__(self, name: str = "CubeSat", log_dir: str = "./logs"):
+    def __init__(self, name: str = "CubeSat", log_dir: str = "./logs") -> None:
         self.name = name
         self.log_dir = Path(log_dir)
         self.log_dir.mkdir(exist_ok=True)
 
-        # Setup main logger
         self.logger = logging.getLogger(name)
-        self.logger.setLevel(logging.INFO)  # Reduced default level for efficiency
+        self.logger.setLevel(logging.INFO)
 
-        # Clear existing handlers
         self.logger.handlers.clear()
 
-        # Formatter
         formatter = logging.Formatter(
             '%(asctime)s - %(levelname)s - %(message)s'
         )
 
-        # File handler with smaller rotation
         file_handler = logging.handlers.RotatingFileHandler(
             self.log_dir / f"{name.lower()}.log",
-            maxBytes=5*1024*1024,  # Reduced to 5MB
-            backupCount=3  # Reduced backup count
+            maxBytes=5*1024*1024,
+            backupCount=3
         )
         file_handler.setFormatter(formatter)
         self.logger.addHandler(file_handler)
 
-        # Conditional console handler based on config
         if os.environ.get('CUBESAT_DEBUG', '').lower() == 'true':
             console_handler = logging.StreamHandler(sys.stdout)
             console_handler.setFormatter(formatter)
@@ -52,32 +47,32 @@ class SimpleLogger:
 
         self.logger.info(f"Simple logger initialized for {name}")
 
-    def debug(self, message: str):
+    def debug(self, message: str) -> None:
         """DEBUG level logging"""
         self.logger.debug(message)
 
-    def info(self, message: str):
+    def info(self, message: str) -> None:
         """INFO level logging"""
         self.logger.info(message)
 
-    def warning(self, message: str):
+    def warning(self, message: str) -> None:
         """WARNING level logging"""
         self.logger.warning(message)
 
-    def error(self, message: str):
+    def error(self, message: str) -> None:
         """ERROR level logging"""
         self.logger.error(message)
 
-    def critical(self, message: str):
+    def critical(self, message: str) -> None:
         """CRITICAL level logging"""
         self.logger.critical(message)
 
-    def alert(self, message: str, severity: str = "HIGH"):
+    def alert(self, message: str, severity: str = "HIGH") -> None:
         """Special alert logging"""
         alert_msg = f"[ALERT-{severity}] {message}"
         self.logger.warning(alert_msg)
 
-    def exception(self, message: str):
+    def exception(self, message: str) -> None:
         """Exception logging"""
         self.logger.exception(message)
 
@@ -87,13 +82,12 @@ class SimpleHealthMonitor:
     Simplified system health monitor
     """
 
-    def __init__(self, logger: SimpleLogger, config: Dict[str, Any]):
+    def __init__(self, logger: SimpleLogger, config: Dict[str, Any]) -> None:
         self.logger = logger
         self.config = config
         self.running = False
-        self.monitor_thread = None
+        self.monitor_thread: Optional[threading.Thread] = None
 
-        # Thresholds for alerts
         self.thresholds = {
             'cpu_percent': config.get('monitoring', {}).get('cpu_threshold', 85.0),
             'memory_percent': config.get('monitoring', {}).get('memory_threshold', 90.0),
@@ -103,7 +97,7 @@ class SimpleHealthMonitor:
             'battery_voltage_max': config.get('monitoring', {}).get('battery_max', 4.2)
         }
 
-    def start_monitoring(self):
+    def start_monitoring(self) -> None:
         """Start monitoring"""
         if self.running:
             return
@@ -113,71 +107,63 @@ class SimpleHealthMonitor:
         self.monitor_thread.start()
         self.logger.info("Simple health monitoring started")
 
-    def stop_monitoring(self):
+    def stop_monitoring(self) -> None:
         """Stop monitoring"""
         self.running = False
         if self.monitor_thread and self.monitor_thread.is_alive():
-            self.monitor_thread.join(timeout=1)  # Shorter timeout
+            self.monitor_thread.join(timeout=1)
         self.logger.info("Health monitoring stopped")
 
-    def _monitor_loop(self):
+    def _monitor_loop(self) -> None:
         """Main monitoring loop with reduced frequency"""
-        check_interval = self.config.get('monitoring', {}).get('check_interval', 60)  # Increased interval
+        check_interval = self.config.get('monitoring', {}).get('check_interval', 60)
 
         while self.running:
             try:
-                # Check thresholds
                 self._check_simple_thresholds()
 
-                # Wait before next check
-                for _ in range(check_interval):  # Break down sleep for responsiveness
+                for _ in range(check_interval):
                     if not self.running:
                         break
                     time.sleep(1)
 
             except Exception as e:
                 self.logger.exception(f"Error in health monitor: {e}")
-                time.sleep(10)  # Pause before retry
+                time.sleep(10)
 
-    def _check_simple_thresholds(self):
+    def _check_simple_thresholds(self) -> None:
         """Check simplified thresholds using basic system calls"""
         try:
-            # Import only when needed to reduce memory usage
-            import os
-            
-            # Check memory usage (simplified)
             try:
                 with open('/proc/meminfo', 'r') as f:
                     meminfo = f.read()
                     mem_total_line = [line for line in meminfo.split('\n') if 'MemTotal:' in line][0]
                     mem_free_line = [line for line in meminfo.split('\n') if 'MemFree:' in line][0]
-                    
-                    mem_total = int(mem_total_line.split()[1])  # KB
-                    mem_free = int(mem_free_line.split()[1])    # KB
+
+                    mem_total = int(mem_total_line.split()[1])
+                    mem_free = int(mem_free_line.split()[1])
                     memory_percent = 100 - (mem_free / mem_total * 100)
-                    
+
                     if memory_percent > self.thresholds['memory_percent']:
                         self.logger.alert(
                             f"Memory usage high: {memory_percent:.1f}%",
                             severity="HIGH"
                         )
-            except:
-                pass  # Ignore errors in memory check
+            except Exception:
+                pass
 
-            # Check disk usage (simplified)
             try:
                 statvfs = os.statvfs('/')
                 disk_percent = (statvfs.f_blocks - statvfs.f_bavail) / statvfs.f_blocks * 100
-                
+
                 if disk_percent > self.thresholds['disk_percent']:
                     self.logger.alert(
                         f"Disk usage high: {disk_percent:.1f}%",
                         severity="CRITICAL"
                     )
-            except:
-                pass  # Ignore errors in disk check
+            except Exception:
+                pass
 
-            # Check temperature
             try:
                 temp = self._get_cpu_temperature()
                 if temp > self.thresholds['temperature']:
@@ -185,25 +171,24 @@ class SimpleHealthMonitor:
                         f"High CPU temperature: {temp}°C",
                         severity="MEDIUM"
                     )
-            except:
-                pass  # Ignore errors in temperature check
+            except Exception:
+                pass
 
         except Exception as e:
             self.logger.exception(f"Error in threshold check: {e}")
 
-    def _get_cpu_temperature(self):
+    def _get_cpu_temperature(self) -> float:
         """Get CPU temperature"""
         try:
             with open('/sys/class/thermal/thermal_zone0/temp', 'r') as f:
                 temp = int(f.read()) / 1000
             return temp
-        except:
+        except Exception:
             return 0
 
-    def log_telemetry_health(self, telemetry_data: Dict[str, Any]):
+    def log_telemetry_health(self, telemetry_data: Dict[str, Any]) -> None:
         """Log telemetry data for monitoring"""
         try:
-            # Check battery voltage
             battery_voltage = telemetry_data.get('battery_voltage', 0)
             if battery_voltage < self.thresholds['battery_voltage_min']:
                 self.logger.alert(
@@ -216,7 +201,6 @@ class SimpleHealthMonitor:
                     severity="WARNING"
                 )
 
-            # Log basic telemetry info
             self.logger.info(
                 f"Telemetry: batt={battery_voltage}V, temp={telemetry_data.get('temperature_bme', 0)}°C"
             )
@@ -225,9 +209,8 @@ class SimpleHealthMonitor:
             self.logger.exception(f"Error checking telemetry health: {e}")
 
 
-# Global instance for use in other modules
-_simple_logger = None
-_simple_health_monitor = None
+_simple_logger: Optional[SimpleLogger] = None
+_simple_health_monitor: Optional[SimpleHealthMonitor] = None
 
 
 def initialize_logging_system(config: Dict[str, Any]) -> tuple:
@@ -239,11 +222,8 @@ def initialize_logging_system(config: Dict[str, Any]) -> tuple:
     """
     global _simple_logger, _simple_health_monitor
 
-    # Create logger
     log_dir = config.get('logging', {}).get('log_directory', './logs')
     _simple_logger = SimpleLogger("CubeSat", log_dir)
-
-    # Create monitor
     _simple_health_monitor = SimpleHealthMonitor(_simple_logger, config)
 
     return _simple_logger, _simple_health_monitor

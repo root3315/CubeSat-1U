@@ -2,108 +2,136 @@
 """
 Telemetry Viewer for Ground Station
 """
-import time 
+
+import time
 import tkinter as tk
 from tkinter import ttk
-import matplotlib.pyplot as plt
-from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
-from matplotlib.figure import Figure
-import numpy as np
-from datetime import datetime
-import threading
+from typing import Dict, Any, List, Optional, Tuple, TYPE_CHECKING
+
+try:
+    import matplotlib.pyplot as plt  # type: ignore
+    from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg  # type: ignore
+    from matplotlib.figure import Figure  # type: ignore
+    import numpy as np  # type: ignore
+    MATPLOTLIB_AVAILABLE = True
+except ImportError:
+    MATPLOTLIB_AVAILABLE = False
+
+if TYPE_CHECKING:
+    from ground_station import GroundStation
+
 
 class TelemetryViewer:
     """Telemetry data viewer with plots"""
-    
-    def __init__(self, parent, ground_station):
+
+    def __init__(self, parent: tk.Widget, ground_station: 'GroundStation') -> None:
         self.parent = parent
         self.gs = ground_station
-        
-        # Data storage for plots
-        self.time_data = []
-        self.temp_data = []
-        self.pressure_data = []
-        self.humidity_data = []
-        self.radiation_data = []
-        self.battery_data = []
-        self.mag_x_data = []
-        self.mag_y_data = []
-        self.mag_z_data = []
-        self.corrosion_data = []
-        
+
+        self.time_data: List[float] = []
+        self.temp_data: List[float] = []
+        self.pressure_data: List[float] = []
+        self.humidity_data: List[float] = []
+        self.radiation_data: List[int] = []
+        self.battery_data: List[float] = []
+        self.mag_x_data: List[float] = []
+        self.mag_y_data: List[float] = []
+        self.mag_z_data: List[float] = []
+        self.corrosion_data: List[int] = []
+
         self.max_points = 1000
-        
-        # Setup GUI
+
+        self.value_labels: Dict[str, Tuple[ttk.Label, str]] = {}
+        self.warning_label: Optional[ttk.Label] = None
+
+        self.temp_fig: Optional[Figure] = None
+        self.temp_ax: Optional[Any] = None
+        self.temp_line: Optional[Any] = None
+        self.tmp_line: Optional[Any] = None
+        self.temp_canvas: Optional[FigureCanvasTkAgg] = None
+
+        self.rad_fig: Optional[Figure] = None
+        self.rad_ax: Optional[Any] = None
+        self.rad_line: Optional[Any] = None
+        self.rad_canvas: Optional[FigureCanvasTkAgg] = None
+
+        self.mag_fig: Optional[Figure] = None
+        self.mag_ax: Optional[Any] = None
+        self.mag_x_line: Optional[Any] = None
+        self.mag_y_line: Optional[Any] = None
+        self.mag_z_line: Optional[Any] = None
+        self.mag_canvas: Optional[FigureCanvasTkAgg] = None
+
+        self.env_fig: Optional[Figure] = None
+        self.press_ax: Optional[Any] = None
+        self.press_line: Optional[Any] = None
+        self.hum_ax: Optional[Any] = None
+        self.hum_line: Optional[Any] = None
+        self.env_canvas: Optional[FigureCanvasTkAgg] = None
+
+        self.bat_fig: Optional[Figure] = None
+        self.bat_ax: Optional[Any] = None
+        self.bat_line: Optional[Any] = None
+        self.bat_canvas: Optional[FigureCanvasTkAgg] = None
+
         self.setup_gui()
-        
-    def setup_gui(self):
+
+    def setup_gui(self) -> None:
         """Setup the telemetry viewer GUI"""
-        # Create paned window for resizable sections
         self.paned = ttk.PanedWindow(self.parent, orient=tk.HORIZONTAL)
         self.paned.pack(fill='both', expand=True)
-        
-        # Left panel - Current values
+
         left_frame = ttk.Frame(self.paned)
         self.paned.add(left_frame, weight=1)
-        
-        # Current values display
         self.setup_current_values(left_frame)
-        
-        # Right panel - Plots
+
         right_frame = ttk.Frame(self.paned)
         self.paned.add(right_frame, weight=3)
-        
-        # Create notebook for plot tabs
+
         plot_notebook = ttk.Notebook(right_frame)
         plot_notebook.pack(fill='both', expand=True)
-        
-        # Temperature plot
+
         temp_frame = ttk.Frame(plot_notebook)
         plot_notebook.add(temp_frame, text="Temperature")
         self.setup_temp_plot(temp_frame)
-        
-        # Radiation plot
+
         rad_frame = ttk.Frame(plot_notebook)
         plot_notebook.add(rad_frame, text="Radiation")
         self.setup_rad_plot(rad_frame)
-        
-        # Magnetometer plot
+
         mag_frame = ttk.Frame(plot_notebook)
         plot_notebook.add(mag_frame, text="Magnetometer")
         self.setup_mag_plot(mag_frame)
-        
-        # Environment plot
+
         env_frame = ttk.Frame(plot_notebook)
         plot_notebook.add(env_frame, text="Environment")
         self.setup_env_plot(env_frame)
-        
-        # Battery plot
+
         bat_frame = ttk.Frame(plot_notebook)
         plot_notebook.add(bat_frame, text="Battery")
         self.setup_battery_plot(bat_frame)
-        
-    def setup_current_values(self, parent):
+
+    def setup_current_values(self, parent: tk.Widget) -> None:
         """Setup current values display"""
-        # Create canvas with scrollbar
         canvas = tk.Canvas(parent)
         scrollbar = ttk.Scrollbar(parent, orient="vertical", command=canvas.yview)
         scrollable_frame = ttk.Frame(canvas)
-        
+
         scrollable_frame.bind(
             "<Configure>",
             lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
         )
-        
+
         canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
         canvas.configure(yscrollcommand=scrollbar.set)
-        
-        # Title
-        title = ttk.Label(scrollable_frame, text="Current Telemetry", 
-                         font=('Arial', 14, 'bold'))
+
+        title = ttk.Label(
+            scrollable_frame,
+            text="Current Telemetry",
+            font=('Arial', 14, 'bold')
+        )
         title.grid(row=0, column=0, columnspan=2, pady=10)
-        
-        # Create labels for each telemetry value
-        self.value_labels = {}
+
         telemetry_items = [
             ("Timestamp", "timestamp_str"),
             ("System State", "system_state"),
@@ -122,172 +150,191 @@ class TelemetryViewer:
             ("Uptime", "uptime", "{:d} s"),
             ("Error Flags", "error_flags", "0x{:02X}")
         ]
-        
+
         for i, item in enumerate(telemetry_items):
             label_text = item[0]
             key = item[1]
             format_str = item[2] if len(item) > 2 else "{}"
-            
-            # Label
-            ttk.Label(scrollable_frame, text=f"{label_text}:", 
-                     font=('Arial', 10, 'bold')).grid(
-                row=i+1, column=0, sticky='w', padx=5, pady=2
+
+            ttk.Label(
+                scrollable_frame,
+                text=f"{label_text}:",
+                font=('Arial', 10, 'bold')
+            ).grid(row=i+1, column=0, sticky='w', padx=5, pady=2)
+
+            value_label = ttk.Label(
+                scrollable_frame,
+                text="---",
+                font=('Courier', 10)
             )
-            
-            # Value
-            value_label = ttk.Label(scrollable_frame, text="---", 
-                                   font=('Courier', 10))
             value_label.grid(row=i+1, column=1, sticky='w', padx=5, pady=2)
-            
+
             self.value_labels[key] = (value_label, format_str)
-            
-        # Add warning indicators
-        ttk.Separator(scrollable_frame, orient='horizontal').grid(
-            row=len(telemetry_items)+1, column=0, columnspan=2, sticky='ew', pady=10
+
+        ttk.Separator(
+            scrollable_frame,
+            orient='horizontal'
+        ).grid(row=len(telemetry_items)+1, column=0, columnspan=2, sticky='ew', pady=10)
+
+        ttk.Label(
+            scrollable_frame,
+            text="Warnings:",
+            font=('Arial', 12, 'bold')
+        ).grid(row=len(telemetry_items)+2, column=0, columnspan=2, pady=5)
+
+        self.warning_label = ttk.Label(
+            scrollable_frame,
+            text="None",
+            foreground='green'
         )
-        
-        ttk.Label(scrollable_frame, text="Warnings:", 
-                 font=('Arial', 12, 'bold')).grid(
-            row=len(telemetry_items)+2, column=0, columnspan=2, pady=5
-        )
-        
-        self.warning_label = ttk.Label(scrollable_frame, text="None", 
-                                      foreground='green')
-        self.warning_label.grid(row=len(telemetry_items)+3, column=0, 
-                               columnspan=2, pady=5)
-        
-        # Pack canvas and scrollbar
+        self.warning_label.grid(row=len(telemetry_items)+3, column=0, columnspan=2, pady=5)
+
         canvas.pack(side="left", fill="both", expand=True)
         scrollbar.pack(side="right", fill="y")
-        
-    def setup_temp_plot(self, parent):
+
+    def setup_temp_plot(self, parent: tk.Widget) -> None:
         """Setup temperature plot"""
+        if not MATPLOTLIB_AVAILABLE:
+            ttk.Label(parent, text="Matplotlib not available").pack()
+            return
+
         self.temp_fig = Figure(figsize=(6, 4), dpi=100)
         self.temp_ax = self.temp_fig.add_subplot(111)
         self.temp_line, = self.temp_ax.plot([], [], 'r-', label='BME280')
         self.tmp_line, = self.temp_ax.plot([], [], 'b-', label='TMP117')
-        
+
         self.temp_ax.set_xlabel('Time (s)')
         self.temp_ax.set_ylabel('Temperature (°C)')
         self.temp_ax.set_title('Temperature History')
         self.temp_ax.grid(True)
         self.temp_ax.legend()
-        
+
         self.temp_canvas = FigureCanvasTkAgg(self.temp_fig, master=parent)
         self.temp_canvas.get_tk_widget().pack(fill='both', expand=True)
-        
-    def setup_rad_plot(self, parent):
+
+    def setup_rad_plot(self, parent: tk.Widget) -> None:
         """Setup radiation plot"""
+        if not MATPLOTLIB_AVAILABLE:
+            ttk.Label(parent, text="Matplotlib not available").pack()
+            return
+
         self.rad_fig = Figure(figsize=(6, 4), dpi=100)
         self.rad_ax = self.rad_fig.add_subplot(111)
         self.rad_line, = self.rad_ax.plot([], [], 'g-')
-        
+
         self.rad_ax.set_xlabel('Time (s)')
         self.rad_ax.set_ylabel('Counts per second')
         self.rad_ax.set_title('Radiation History')
         self.rad_ax.grid(True)
-        
+
         self.rad_canvas = FigureCanvasTkAgg(self.rad_fig, master=parent)
         self.rad_canvas.get_tk_widget().pack(fill='both', expand=True)
-        
-    def setup_mag_plot(self, parent):
+
+    def setup_mag_plot(self, parent: tk.Widget) -> None:
         """Setup magnetometer plot"""
+        if not MATPLOTLIB_AVAILABLE:
+            ttk.Label(parent, text="Matplotlib not available").pack()
+            return
+
         self.mag_fig = Figure(figsize=(6, 4), dpi=100)
         self.mag_ax = self.mag_fig.add_subplot(111)
-        
+
         self.mag_x_line, = self.mag_ax.plot([], [], 'r-', label='X')
         self.mag_y_line, = self.mag_ax.plot([], [], 'g-', label='Y')
         self.mag_z_line, = self.mag_ax.plot([], [], 'b-', label='Z')
-        
+
         self.mag_ax.set_xlabel('Time (s)')
         self.mag_ax.set_ylabel('Magnetic Field (Gauss)')
         self.mag_ax.set_title('Magnetometer History')
         self.mag_ax.grid(True)
         self.mag_ax.legend()
-        
+
         self.mag_canvas = FigureCanvasTkAgg(self.mag_fig, master=parent)
         self.mag_canvas.get_tk_widget().pack(fill='both', expand=True)
-        
-    def setup_env_plot(self, parent):
+
+    def setup_env_plot(self, parent: tk.Widget) -> None:
         """Setup environment plot (pressure, humidity)"""
+        if not MATPLOTLIB_AVAILABLE:
+            ttk.Label(parent, text="Matplotlib not available").pack()
+            return
+
         self.env_fig = Figure(figsize=(6, 4), dpi=100)
-        
-        # Pressure subplot
+
         self.press_ax = self.env_fig.add_subplot(211)
         self.press_line, = self.press_ax.plot([], [], 'b-')
         self.press_ax.set_ylabel('Pressure (hPa)')
         self.press_ax.grid(True)
-        
-        # Humidity subplot
+
         self.hum_ax = self.env_fig.add_subplot(212)
         self.hum_line, = self.hum_ax.plot([], [], 'g-')
         self.hum_ax.set_xlabel('Time (s)')
         self.hum_ax.set_ylabel('Humidity (%)')
         self.hum_ax.grid(True)
-        
+
         self.env_fig.tight_layout()
-        
+
         self.env_canvas = FigureCanvasTkAgg(self.env_fig, master=parent)
         self.env_canvas.get_tk_widget().pack(fill='both', expand=True)
-        
-    def setup_battery_plot(self, parent):
+
+    def setup_battery_plot(self, parent: tk.Widget) -> None:
         """Setup battery plot"""
+        if not MATPLOTLIB_AVAILABLE:
+            ttk.Label(parent, text="Matplotlib not available").pack()
+            return
+
         self.bat_fig = Figure(figsize=(6, 4), dpi=100)
         self.bat_ax = self.bat_fig.add_subplot(111)
         self.bat_line, = self.bat_ax.plot([], [], 'm-')
-        
+
         self.bat_ax.set_xlabel('Time (s)')
         self.bat_ax.set_ylabel('Voltage (V)')
         self.bat_ax.set_title('Battery Voltage History')
         self.bat_ax.grid(True)
-        
-        # Add threshold lines
+
         self.bat_ax.axhline(y=3.7, color='g', linestyle='--', alpha=0.5, label='Nominal')
         self.bat_ax.axhline(y=3.5, color='y', linestyle='--', alpha=0.5, label='Low')
         self.bat_ax.axhline(y=3.4, color='r', linestyle='--', alpha=0.5, label='Critical')
         self.bat_ax.legend()
-        
+
         self.bat_canvas = FigureCanvasTkAgg(self.bat_fig, master=parent)
         self.bat_canvas.get_tk_widget().pack(fill='both', expand=True)
-        
-    def update_telemetry(self, telemetry):
+
+    def update_telemetry(self, telemetry: Dict[str, Any]) -> None:
         """Update display with new telemetry"""
-        # Update current values
         for key, (label, format_str) in self.value_labels.items():
             if key in telemetry:
                 try:
                     value = telemetry[key]
                     if key == 'battery_voltage':
-                        value = value / 1000.0  # Convert mV to V
+                        value = value / 1000.0
                     elif key == 'timestamp_str':
-                        value = datetime.now().strftime('%H:%M:%S')
+                        value = time.strftime('%H:%M:%S')
                     elif key == 'system_state':
                         states = ['BOOT', 'IDLE', 'NOMINAL', 'SAFE', 'LOW_POWER', 'EMERGENCY']
                         value = states[value] if value < len(states) else f"UNKNOWN({value})"
-                        
+
                     label.config(text=format_str.format(value))
-                except:
+                except Exception:
                     label.config(text="ERR")
-                    
-        # Check for warnings
-        warnings = []
-        
+
+        warnings_list = []
+
         if telemetry.get('battery_voltage', 4000) < 3500:
-            warnings.append("Low Battery!")
+            warnings_list.append("Low Battery!")
         if telemetry.get('temperature_bme', 20) > 60:
-            warnings.append("High Temperature!")
+            warnings_list.append("High Temperature!")
         if telemetry.get('error_flags', 0) != 0:
-            warnings.append("Error Flags Set!")
-            
-        if warnings:
-            self.warning_label.config(text=", ".join(warnings), foreground='red')
-        else:
-            self.warning_label.config(text="None", foreground='green')
-            
-        # Update data arrays for plots
+            warnings_list.append("Error Flags Set!")
+
+        if self.warning_label:
+            if warnings_list:
+                self.warning_label.config(text=", ".join(warnings_list), foreground='red')
+            else:
+                self.warning_label.config(text="None", foreground='green')
+
         current_time = time.time()
         self.time_data.append(current_time)
-        
+
         self.temp_data.append(telemetry.get('temperature_bme', 0))
         self.pressure_data.append(telemetry.get('pressure', 0))
         self.humidity_data.append(telemetry.get('humidity', 0))
@@ -297,8 +344,7 @@ class TelemetryViewer:
         self.mag_y_data.append(telemetry.get('mag_y', 0))
         self.mag_z_data.append(telemetry.get('mag_z', 0))
         self.corrosion_data.append(telemetry.get('corrosion_raw', 0))
-        
-        # Limit data points
+
         if len(self.time_data) > self.max_points:
             self.time_data = self.time_data[-self.max_points:]
             self.temp_data = self.temp_data[-self.max_points:]
@@ -310,51 +356,56 @@ class TelemetryViewer:
             self.mag_y_data = self.mag_y_data[-self.max_points:]
             self.mag_z_data = self.mag_z_data[-self.max_points:]
             self.corrosion_data = self.corrosion_data[-self.max_points:]
-            
-        # Update plots
+
         self.update_plots()
-        
-    def update_plots(self):
+
+    def update_plots(self) -> None:
         """Update all plots"""
-        if len(self.time_data) < 2:
+        if len(self.time_data) < 2 or not MATPLOTLIB_AVAILABLE:
             return
-            
-        # Normalize time to seconds from start
+
         t0 = self.time_data[0]
         t_norm = [t - t0 for t in self.time_data]
-        
-        # Temperature plot
-        self.temp_line.set_data(t_norm, self.temp_data)
-        self.temp_ax.relim()
-        self.temp_ax.autoscale_view()
-        self.temp_canvas.draw_idle()
-        
-        # Radiation plot
-        self.rad_line.set_data(t_norm, self.radiation_data)
-        self.rad_ax.relim()
-        self.rad_ax.autoscale_view()
-        self.rad_canvas.draw_idle()
-        
-        # Magnetometer plot
-        self.mag_x_line.set_data(t_norm, self.mag_x_data)
-        self.mag_y_line.set_data(t_norm, self.mag_y_data)
-        self.mag_z_line.set_data(t_norm, self.mag_z_data)
-        self.mag_ax.relim()
-        self.mag_ax.autoscale_view()
-        self.mag_canvas.draw_idle()
-        
-        # Environment plot
-        self.press_line.set_data(t_norm, self.pressure_data)
-        self.press_ax.relim()
-        self.press_ax.autoscale_view()
-        
-        self.hum_line.set_data(t_norm, self.humidity_data)
-        self.hum_ax.relim()
-        self.hum_ax.autoscale_view()
-        self.env_canvas.draw_idle()
-        
-        # Battery plot
-        self.bat_line.set_data(t_norm, self.battery_data)
-        self.bat_ax.relim()
-        self.bat_ax.autoscale_view()
-        self.bat_canvas.draw_idle()
+
+        if self.temp_line and self.temp_ax:
+            self.temp_line.set_data(t_norm, self.temp_data)
+            self.temp_ax.relim()
+            self.temp_ax.autoscale_view()
+            if self.temp_canvas:
+                self.temp_canvas.draw_idle()
+
+        if self.rad_line and self.rad_ax:
+            self.rad_line.set_data(t_norm, self.radiation_data)
+            self.rad_ax.relim()
+            self.rad_ax.autoscale_view()
+            if self.rad_canvas:
+                self.rad_canvas.draw_idle()
+
+        if self.mag_x_line and self.mag_ax:
+            self.mag_x_line.set_data(t_norm, self.mag_x_data)
+            self.mag_y_line.set_data(t_norm, self.mag_y_data)
+            self.mag_z_line.set_data(t_norm, self.mag_z_data)
+            self.mag_ax.relim()
+            self.mag_ax.autoscale_view()
+            if self.mag_canvas:
+                self.mag_canvas.draw_idle()
+
+        if self.press_line and self.press_ax:
+            self.press_line.set_data(t_norm, self.pressure_data)
+            self.press_ax.relim()
+            self.press_ax.autoscale_view()
+
+        if self.hum_line and self.hum_ax:
+            self.hum_line.set_data(t_norm, self.humidity_data)
+            self.hum_ax.relim()
+            self.hum_ax.autoscale_view()
+
+        if self.env_canvas:
+            self.env_canvas.draw_idle()
+
+        if self.bat_line and self.bat_ax:
+            self.bat_line.set_data(t_norm, self.battery_data)
+            self.bat_ax.relim()
+            self.bat_ax.autoscale_view()
+            if self.bat_canvas:
+                self.bat_canvas.draw_idle()
