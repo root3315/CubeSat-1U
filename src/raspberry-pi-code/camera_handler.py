@@ -4,7 +4,7 @@ Optimized Camera handler for Raspberry Pi Camera Module
 Lightweight implementation optimized for resource-constrained environments
 """
 
-import cv2
+import cv2  # type: ignore
 import numpy as np
 from PIL import Image
 import os
@@ -13,50 +13,53 @@ import logging
 import threading
 from datetime import datetime
 from pathlib import Path
+from typing import Optional, Dict, Any, List, Tuple
 
 
 class CameraHandler:
     """Optimized camera handler with reduced resource usage"""
 
-    def __init__(self, config):
-        self.config = config
-        self.logger = logging.getLogger('CameraHandler')
+    def __init__(self, config: Dict[str, Any]) -> None:
+        self.config: Dict[str, Any] = config
+        self.logger: logging.Logger = logging.getLogger('CameraHandler')
 
         # FIX: Track camera availability state
-        self.camera_available = False
+        self.camera_available: bool = False
 
         # Initialize camera
-        self.camera = None
+        self.camera: Optional[cv2.VideoCapture] = None  # type: ignore
         self.init_camera()
 
         # Create storage directories
         self.setup_storage()
 
-    def init_camera(self):
+    def init_camera(self) -> None:
         """Initialize the camera with optimized settings and proper null checks"""
         try:
             # Use lower resolution initially for faster startup
-            self.camera = cv2.VideoCapture(0)
+            self.camera = cv2.VideoCapture(0)  # type: ignore
 
             # FIX: Check if camera opened successfully
-            if not self.camera.isOpened():
+            if not self.camera.isOpened():  # type: ignore
                 self.logger.error("Camera failed to open - device not available")
-                self.camera.release()
+                self.camera.release()  # type: ignore
                 self.camera = None
                 self.camera_available = False
                 return
 
             # Set properties for optimal performance
-            self.camera.set(cv2.CAP_PROP_FRAME_WIDTH,
+            self.camera.set(cv2.CAP_PROP_FRAME_WIDTH,  # type: ignore
                            self.config['camera']['resolution'][0] // 2)  # Lower res for speed
-            self.camera.set(cv2.CAP_PROP_FRAME_HEIGHT,
+            self.camera.set(cv2.CAP_PROP_FRAME_HEIGHT,  # type: ignore
                            self.config['camera']['resolution'][1] // 2)  # Lower res for speed
-            self.camera.set(cv2.CAP_PROP_FPS, 15)  # Lower FPS for efficiency
-            self.camera.set(cv2.CAP_PROP_BUFFERSIZE, 1)  # Minimize buffer
+            self.camera.set(cv2.CAP_PROP_FPS, 15)  # type: ignore # Lower FPS for efficiency
+            self.camera.set(cv2.CAP_PROP_BUFFERSIZE, 1)  # type: ignore # Minimize buffer
 
             # Warm up camera with fewer frames
             for _ in range(3):  # Reduced warm-up
-                ret, _ = self.camera.read()
+                ret: bool
+                frame: Any
+                ret, frame = self.camera.read()  # type: ignore
                 if not ret:
                     self.logger.warning("Camera warm-up frame capture failed")
 
@@ -66,21 +69,21 @@ class CameraHandler:
         except Exception as e:
             self.logger.error(f"Camera initialization failed: {e}")
             if self.camera:
-                self.camera.release()
+                self.camera.release()  # type: ignore
             self.camera = None
             self.camera_available = False
 
-    def setup_storage(self):
+    def setup_storage(self) -> None:
         """Setup image storage directories"""
-        base_path = Path(self.config['storage']['base_path'])
+        base_path: Path = Path(self.config['storage']['base_path'])
 
         # Create directories
-        dirs = ['images/raw', 'images/compressed', 'images/thumbnails']
+        dirs: List[str] = ['images/raw', 'images/compressed', 'images/thumbnails']
         for dir_path in dirs:
-            full_path = base_path / dir_path
+            full_path: Path = base_path / dir_path
             full_path.mkdir(parents=True, exist_ok=True)
 
-    def capture_image(self, output_queue=None):
+    def capture_image(self, output_queue: Optional[Any] = None) -> Optional[Dict[str, Any]]:
         """Capture an image from the camera with optimized performance"""
         # FIX: Check both camera object and availability flag
         if not self.camera or not self.camera_available:
@@ -91,9 +94,10 @@ class CameraHandler:
             self.logger.info("Capturing image...")
 
             # Capture frame with retry logic
-            ret, frame = None, None
+            ret: bool = False
+            frame: Optional[Any] = None
             for attempt in range(3):
-                ret, frame = self.camera.read()
+                ret, frame = self.camera.read()  # type: ignore
                 if ret and frame is not None:
                     break
                 self.logger.warning(f"Capture attempt {attempt + 1} failed, retrying...")
@@ -103,20 +107,20 @@ class CameraHandler:
                 return None
 
             # Generate filename with timestamp
-            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S_%f')[:-3]
-            base_path = Path(self.config['storage']['base_path'])
-            filename = base_path / 'images' / 'raw' / f'raw_{timestamp}.jpg'
+            timestamp: str = datetime.now().strftime('%Y%m%d_%H%M%S_%f')[:-3]
+            base_path: Path = Path(self.config['storage']['base_path'])
+            filename: Path = base_path / 'images' / 'raw' / f'raw_{timestamp}.jpg'
 
             # Save raw image with optimized quality
-            cv2.imwrite(str(filename), frame, [cv2.IMWRITE_JPEG_QUALITY, 95])  # Slightly lower quality for speed
+            cv2.imwrite(str(filename), frame, [cv2.IMWRITE_JPEG_QUALITY, 95])  # type: ignore # Slightly lower quality for speed
 
             # Get file size
-            file_size = os.path.getsize(filename) / 1024  # KB
+            file_size: float = os.path.getsize(filename) / 1024  # KB
 
             self.logger.info(f"Image captured: {filename} ({file_size:.1f} KB)")
 
             # Add metadata
-            image_info = {
+            image_info: Dict[str, Any] = {
                 'filename': str(filename),
                 'timestamp': timestamp,
                 'size': frame.shape,
@@ -137,33 +141,36 @@ class CameraHandler:
             self.logger.error(f"Image capture error: {e}")
             return None
 
-    def compress_image(self, raw_path, n_components=30):  # Reduced components for speed
+    def compress_image(self, raw_path: str, n_components: int = 30) -> Optional[str]:  # Reduced components for speed
         """Optimized image compression using SVD with fewer components"""
         try:
             self.logger.info(f"Compressing image: {raw_path}")
 
             # Load image
-            img = Image.open(raw_path)
-            
+            img: Image.Image = Image.open(raw_path)
+
             # Resize to smaller dimensions for faster processing
             img = img.resize((img.width // 2, img.height // 2), Image.Resampling.LANCZOS)
-            
-            img_array = np.array(img)
+
+            img_array: np.ndarray = np.array(img)
 
             # Convert to float for processing
-            img_float = img_array.astype(float)
+            img_float: np.ndarray = img_array.astype(float)
 
             # Apply optimized SVD compression
             if len(img_float.shape) == 3:
                 # Color image - process each channel separately
-                compressed = np.zeros_like(img_float)
+                compressed: np.ndarray = np.zeros_like(img_float)
 
                 for channel in range(3):
+                    U: np.ndarray
+                    s: np.ndarray
+                    Vt: np.ndarray
                     U, s, Vt = np.linalg.svd(img_float[:, :, channel],
                                              full_matrices=False)
 
                     # Keep only top n_components (reduced for speed)
-                    kept_components = min(n_components, len(s))  # Ensure we don't exceed available components
+                    kept_components: int = min(n_components, len(s))  # Ensure we don't exceed available components
                     compressed[:, :, channel] = U[:, :kept_components] @ \
                                                 np.diag(s[:kept_components]) @ \
                                                 Vt[:kept_components, :]
@@ -179,19 +186,19 @@ class CameraHandler:
             compressed = np.clip(compressed, 0, 255).astype(np.uint8)
 
             # Generate compressed filename
-            base_path = Path(self.config['storage']['base_path'])
-            timestamp = Path(raw_path).stem.replace('raw_', '')
-            compressed_path = base_path / 'images' / 'compressed' / f'compressed_{timestamp}.jpg'
+            base_path: Path = Path(self.config['storage']['base_path'])
+            timestamp: str = Path(raw_path).stem.replace('raw_', '')
+            compressed_path: Path = base_path / 'images' / 'compressed' / f'compressed_{timestamp}.jpg'
 
             # Save compressed image
-            compressed_img = Image.fromarray(compressed)
+            compressed_img: Image.Image = Image.fromarray(compressed)
             compressed_img.save(str(compressed_path),
                               quality=self.config['camera']['compression_quality'])
 
             # Calculate compression ratio
-            original_size = os.path.getsize(raw_path)
-            compressed_size = os.path.getsize(compressed_path)
-            ratio = original_size / compressed_size if compressed_size > 0 else 1
+            original_size: int = os.path.getsize(raw_path)
+            compressed_size: int = os.path.getsize(compressed_path)
+            ratio: float = original_size / compressed_size if compressed_size > 0 else 1
 
             self.logger.info(f"Compression complete: {ratio:.2f}x reduction "
                  f"({original_size/1024:.1f}KB -> {compressed_size/1024:.1f}KB)")
@@ -202,19 +209,19 @@ class CameraHandler:
             self.logger.error(f"Image compression error: {e}")
             return None
 
-    def create_thumbnail(self, raw_path, size=(160, 120)):  # Smaller thumbnails for speed
+    def create_thumbnail(self, raw_path: str, size: Tuple[int, int] = (160, 120)) -> Optional[str]:  # Smaller thumbnails for speed
         """Create a lightweight thumbnail for quick preview"""
         try:
             # Load image
-            img = Image.open(raw_path)
+            img: Image.Image = Image.open(raw_path)
 
             # Create thumbnail with optimized resampling
             img.thumbnail(size, Image.Resampling.BILINEAR)  # Faster resampling method
 
             # Generate thumbnail filename
-            base_path = Path(self.config['storage']['base_path'])
-            timestamp = Path(raw_path).stem.replace('raw_', '')
-            thumb_path = base_path / 'images' / 'thumbnails' / f'thumb_{timestamp}.jpg'
+            base_path: Path = Path(self.config['storage']['base_path'])
+            timestamp: str = Path(raw_path).stem.replace('raw_', '')
+            thumb_path: Path = base_path / 'images' / 'thumbnails' / f'thumb_{timestamp}.jpg'
 
             # Save thumbnail with lower quality for speed
             img.save(str(thumb_path), quality=60)
@@ -225,29 +232,29 @@ class CameraHandler:
             self.logger.error(f"Thumbnail creation error: {e}")
             return None
 
-    def get_image_list(self, limit=50):  # Reduced limit for efficiency
+    def get_image_list(self, limit: int = 50) -> List[str]:  # Reduced limit for efficiency
         """Get list of captured images with optimized performance"""
-        base_path = Path(self.config['storage']['base_path'])
-        raw_path = base_path / 'images' / 'raw'
+        base_path: Path = Path(self.config['storage']['base_path'])
+        raw_path: Path = base_path / 'images' / 'raw'
 
         if not raw_path.exists():
             return []
 
-        images = sorted(raw_path.glob('raw_*.jpg'), reverse=True)
+        images: List[Path] = sorted(raw_path.glob('raw_*.jpg'), reverse=True)
         return [str(img) for img in images[:limit]]
 
-    def delete_image(self, filename):
+    def delete_image(self, filename: str) -> bool:
         """Delete an image file with optimized performance"""
         try:
             if os.path.exists(filename):
                 os.remove(filename)
 
                 # Also delete associated compressed and thumbnail
-                base = Path(filename)
+                base: Path = Path(filename)
                 if 'raw_' in base.name:
-                    timestamp = base.name.replace('raw_', '')
-                    compressed = base.parent.parent / 'compressed' / f'compressed_{timestamp}'
-                    thumb = base.parent.parent / 'thumbnails' / f'thumb_{timestamp}'
+                    timestamp: str = base.name.replace('raw_', '')
+                    compressed: Path = base.parent.parent / 'compressed' / f'compressed_{timestamp}'
+                    thumb: Path = base.parent.parent / 'thumbnails' / f'thumb_{timestamp}'
 
                     for f in [compressed, thumb]:
                         if f.exists():
@@ -261,11 +268,11 @@ class CameraHandler:
             self.logger.error(f"Error deleting {filename}: {e}")
         return False
 
-    def cleanup(self):
+    def cleanup(self) -> None:
         """FIX: Release camera resources properly"""
         if self.camera:
             try:
-                self.camera.release()
+                self.camera.release()  # type: ignore
             except Exception as e:
                 self.logger.error(f"Error releasing camera: {e}")
             finally:

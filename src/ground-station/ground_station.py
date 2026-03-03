@@ -11,12 +11,12 @@ License: MIT
 """
 
 import io
-import streamlit as st
-import pandas as pd
+import streamlit as st  # type: ignore
+import pandas as pd  # type: ignore
 import numpy as np
-import plotly.graph_objects as go
-from plotly.subplots import make_subplots
-import plotly.express as px
+import plotly.graph_objects as go  # type: ignore
+from plotly.subplots import make_subplots  # type: ignore
+import plotly.express as px  # type: ignore
 import time
 import threading
 import socket
@@ -31,6 +31,7 @@ import queue
 import hashlib
 from pathlib import Path
 import warnings
+from typing import Dict, Any, List, Optional, Tuple, Deque
 warnings.filterwarnings('ignore')
 
 # ==============================================================================
@@ -455,48 +456,48 @@ st.markdown("""
 
 class Config:
     """System configuration"""
-    
-    VERSION = "4.1.0"
-    
+
+    VERSION: str = "4.1.0"
+
     # Communication
-    UDP_PORT = 5001
-    SSL_PORT = 5002
-    SATELLITE_IP = "192.168.1.100"
-    SATELLITE_PORT = 5000
-    BUFFER_SIZE = 4096
-    COMMAND_TIMEOUT = 5.0
-    MAX_RETRIES = 3
-    
+    UDP_PORT: int = 5001
+    SSL_PORT: int = 5002
+    SATELLITE_IP: str = "192.168.1.100"
+    SATELLITE_PORT: int = 5000
+    BUFFER_SIZE: int = 4096
+    COMMAND_TIMEOUT: float = 5.0
+    MAX_RETRIES: int = 3
+
     # Data storage
-    MAX_HISTORY = 10000
-    GRAPH_POINTS = 500
-    UPDATE_INTERVAL = 0.1  # seconds
-    
+    MAX_HISTORY: int = 10000
+    GRAPH_POINTS: int = 500
+    UPDATE_INTERVAL: float = 0.1  # seconds
+
     # Protocol
-    SYNC_TELEMETRY = 0xAA55
-    SYNC_COMMAND = 0xAA56
-    SYNC_IMAGE = 0xAA58
-    SYNC_FILE = 0xAA59
-    SYNC_BEACON = 0xAA5A
-    
+    SYNC_TELEMETRY: int = 0xAA55
+    SYNC_COMMAND: int = 0xAA56
+    SYNC_IMAGE: int = 0xAA58
+    SYNC_FILE: int = 0xAA59
+    SYNC_BEACON: int = 0xAA5A
+
     # Commands
-    CMD_PING = 0x01
-    CMD_GET_TELEMETRY = 0x02
-    CMD_CAPTURE_IMAGE = 0x03
-    CMD_SET_MODE = 0x04
-    CMD_RESET = 0x05
-    CMD_TRANSMIT_FILE = 0x06
-    CMD_GET_STATUS = 0x07
-    CMD_SET_SCHEDULE = 0x08
-    CMD_BEACON = 0x09
-    CMD_REBOOT = 0x0A
-    CMD_SHUTDOWN = 0x0B
-    CMD_CALIBRATE = 0x0C
-    CMD_GET_LOGS = 0x0D
-    CMD_CLEAR_LOGS = 0x0E
-    
+    CMD_PING: int = 0x01
+    CMD_GET_TELEMETRY: int = 0x02
+    CMD_CAPTURE_IMAGE: int = 0x03
+    CMD_SET_MODE: int = 0x04
+    CMD_RESET: int = 0x05
+    CMD_TRANSMIT_FILE: int = 0x06
+    CMD_GET_STATUS: int = 0x07
+    CMD_SET_SCHEDULE: int = 0x08
+    CMD_BEACON: int = 0x09
+    CMD_REBOOT: int = 0x0A
+    CMD_SHUTDOWN: int = 0x0B
+    CMD_CALIBRATE: int = 0x0C
+    CMD_GET_LOGS: int = 0x0D
+    CMD_CLEAR_LOGS: int = 0x0E
+
     # Modes
-    MODES = {
+    MODES: Dict[int, str] = {
         0: "BOOT",
         1: "IDLE",
         2: "NOMINAL",
@@ -506,9 +507,9 @@ class Config:
         6: "IMAGE_CAPTURE",
         7: "DATA_TX"
     }
-    
+
     # Error codes
-    ERRORS = {
+    ERRORS: Dict[int, str] = {
         0x00: "None",
         0x01: "I2C Error",
         0x02: "SPI Error",
@@ -519,23 +520,30 @@ class Config:
         0x07: "Task Hang",
         0x08: "Memory Error"
     }
-    
+
     # Thresholds
-    TEMP_WARNING = 35.0
-    TEMP_CRITICAL = 45.0
-    RAD_WARNING = 50
-    RAD_CRITICAL = 80
-    BATT_WARNING = 3.6
-    BATT_CRITICAL = 3.4
-    
+    TEMP_WARNING: float = 35.0
+    TEMP_CRITICAL: float = 45.0
+    RAD_WARNING: int = 50
+    RAD_CRITICAL: int = 80
+    BATT_WARNING: float = 3.6
+    BATT_CRITICAL: float = 3.4
+
     # File paths - Updated to use Downloads folder
-    def get_downloads_path():
+    DOWNLOADS_DIR: Path
+    MISSION_DATA_DIR: Path
+    TELEMETRY_DIR: Path
+    IMAGES_DIR: Path
+    LOGS_DIR: Path
+
+    @staticmethod
+    def get_downloads_path() -> Path:
         """Get the path to the user's Downloads folder"""
         if os.name == 'nt':  # Windows
             return Path(os.path.expanduser('~')) / 'Downloads'
         else:  # Linux/Mac
             return Path(os.path.expanduser('~')) / 'Downloads'
-    
+
     DOWNLOADS_DIR = get_downloads_path()
     MISSION_DATA_DIR = DOWNLOADS_DIR / 'CubeSat_Mission_Data'
     TELEMETRY_DIR = MISSION_DATA_DIR / 'telemetry'
@@ -548,43 +556,84 @@ class Config:
 
 class TelemetryData:
     """Structured telemetry data container"""
-    
-    def __init__(self):
+
+    def __init__(self) -> None:
+        # Initialize all attributes with default values
+        self.timestamp: float = 0
+        self.sequence: int = 0
+        self.mission_time: float = 0
+        self.temperature_bme: float = 0
+        self.temperature_tmp: float = 0
+        self.pressure: float = 0
+        self.humidity: float = 0
+        self.altitude: float = 0
+        self.radiation_cps: int = 0
+        self.radiation_total: int = 0
+        self.dose_rate: float = 0
+        self.peak_flux: int = 0
+        self.mag_x: float = 0
+        self.mag_y: float = 0
+        self.mag_z: float = 0
+        self.mag_strength: float = 0
+        self.mag_inclination: float = 0
+        self.battery_voltage: float = 0
+        self.battery_current: int = 0
+        self.battery_level: int = 0
+        self.power_consumption: float = 0
+        self.solar_current: int = 0
+        self.cpu_load: int = 0
+        self.memory_usage: int = 0
+        self.disk_usage: int = 0
+        self.uptime: float = 0
+        self.boot_count: int = 0
+        self.error_flags: int = 0
+        self.system_state: int = 0
+        self.latitude: float = 0
+        self.longitude: float = 0
+        self.gps_altitude: float = 0
+        self.gps_satellites: int = 0
+        self.gps_quality: int = 0
+        self.corrosion_raw: int = 0
+        self.corrosion_rate: float = 0
+        self.signal_strength: int = 0
+        self.packets_sent: int = 0
+        self.packets_received: int = 0
+        self.last_contact: float = 0
         self.reset()
-    
-    def reset(self):
+
+    def reset(self) -> None:
         """Reset to default values"""
         self.timestamp = time.time()
         self.sequence = 0
         self.mission_time = 0
-        
+
         # Environment
         self.temperature_bme = 20.0
         self.temperature_tmp = 20.0
         self.pressure = 1013.25
         self.humidity = 45.0
         self.altitude = 400.0
-        
+
         # Radiation
         self.radiation_cps = 30
         self.radiation_total = 0
         self.dose_rate = 3.0
         self.peak_flux = 30
-        
+
         # Magnetometer
         self.mag_x = 0.25
         self.mag_y = -0.18
         self.mag_z = 0.45
         self.mag_strength = 0.53
         self.mag_inclination = 45.0
-        
+
         # Power
         self.battery_voltage = 3.85
         self.battery_current = 120
         self.battery_level = 95
         self.power_consumption = 0.46
         self.solar_current = 50
-        
+
         # System
         self.cpu_load = 25
         self.memory_usage = 35
@@ -593,25 +642,25 @@ class TelemetryData:
         self.boot_count = 1
         self.error_flags = 0
         self.system_state = 2
-        
+
         # GPS
         self.latitude = 0.0
         self.longitude = 0.0
         self.gps_altitude = 400.0
         self.gps_satellites = 12
         self.gps_quality = 1
-        
+
         # Corrosion
         self.corrosion_raw = 500
         self.corrosion_rate = 0.01
-        
+
         # Communication
         self.signal_strength = -70
         self.packets_sent = 0
         self.packets_received = 0
         self.last_contact = time.time()
-    
-    def reset_empty(self):
+
+    def reset_empty(self) -> None:
         """Reset to empty values (no data)"""
         self.timestamp = 0
         self.sequence = 0
@@ -653,12 +702,12 @@ class TelemetryData:
         self.packets_sent = 0
         self.packets_received = 0
         self.last_contact = 0
-    
-    def is_valid(self):
+
+    def is_valid(self) -> bool:
         """Check if telemetry data is valid (has been received)"""
         return self.timestamp > 0
-    
-    def to_dict(self):
+
+    def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary"""
         return {
             'timestamp': self.timestamp,
@@ -702,8 +751,8 @@ class TelemetryData:
             'packets_received': self.packets_received,
             'last_contact': self.last_contact
         }
-    
-    def from_packet(self, data):
+
+    def from_packet(self, data: bytes) -> bool:
         """Parse from binary packet"""
         try:
             if len(data) >= 41 and data[0] == 0xAA and data[1] == 0x55:
@@ -757,21 +806,21 @@ class TelemetryData:
 
 class PreviewGenerator:
     """Professional preview data generator - only used in PREVIEW MODE"""
-    
-    def __init__(self):
-        self.start_time = time.time()
-        self.packet_count = 0
-        self.phase = 0
-        self.radiation_base = 30
-        self.radiation_spike = 0
-        self.spike_duration = 0
-        
-    def generate(self):
+
+    def __init__(self) -> None:
+        self.start_time: float = time.time()
+        self.packet_count: int = 0
+        self.phase: float = 0
+        self.radiation_base: int = 30
+        self.radiation_spike: int = 0
+        self.spike_duration: int = 0
+
+    def generate(self) -> TelemetryData:
         """Generate realistic telemetry data"""
-        elapsed = time.time() - self.start_time
+        elapsed: float = time.time() - self.start_time
         self.phase += 0.1
-        
-        t = TelemetryData()
+
+        t: TelemetryData = TelemetryData()
         t.timestamp = time.time()
         t.sequence = self.packet_count
         t.mission_time = elapsed
@@ -855,37 +904,37 @@ except ImportError:
 class CommunicationHandler:
     """Handles UDP and SSL/TLS communication with satellite"""
 
-    def __init__(self):
-        self.socket = None
-        self.ssl_socket = None
-        self.connected = False
-        self.ssl_connected = False
-        self.running = False
-        self.thread = None
-        self.ssl_thread = None
-        self.receive_queue = queue.Queue()
+    def __init__(self) -> None:
+        self.socket: Optional[socket.socket] = None
+        self.ssl_socket: Optional[socket.socket] = None
+        self.connected: bool = False
+        self.ssl_connected: bool = False
+        self.running: bool = False
+        self.thread: Optional[threading.Thread] = None
+        self.ssl_thread: Optional[threading.Thread] = None
+        self.receive_queue: queue.Queue[Tuple[str, bytes]] = queue.Queue()
 
-        self.satellite_ip = Config.SATELLITE_IP
-        self.satellite_port = Config.SATELLITE_PORT
-        self.ssl_port = getattr(Config, 'SSL_PORT', 5001)  # Default SSL port
-        self.local_port = Config.UDP_PORT
+        self.satellite_ip: str = Config.SATELLITE_IP
+        self.satellite_port: int = Config.SATELLITE_PORT
+        self.ssl_port: int = getattr(Config, 'SSL_PORT', 5001)  # Default SSL port
+        self.local_port: int = Config.UDP_PORT
 
-        self.packets_sent = 0
-        self.packets_received = 0
-        self.bytes_sent = 0
-        self.bytes_received = 0
-        self.last_activity = 0
-        self.connection_time = 0
+        self.packets_sent: int = 0
+        self.packets_received: int = 0
+        self.bytes_sent: int = 0
+        self.bytes_received: int = 0
+        self.last_activity: float = 0
+        self.connection_time: float = 0
 
         # SSL/TLS support
-        self.ssl_enabled = False
-        self.ssl_handler = None
+        self.ssl_enabled: bool = False
+        self.ssl_handler: Optional[Any] = None
         if SSL_AVAILABLE:
             # Load configuration for SSL
             import json
             try:
                 with open('../../config.json', 'r') as f:
-                    config = json.load(f)
+                    config: Dict[str, Any] = json.load(f)
                     self.ssl_enabled = config.get('security', {}).get('ssl_enabled', False)
             except:
                 # Default to disabled if config not found
@@ -893,23 +942,23 @@ class CommunicationHandler:
 
             if self.ssl_enabled:
                 self.ssl_handler = GroundStationSSLHandler(config)
-    
-    def start(self):
+
+    def start(self) -> bool:
         """Start communication threads"""
         self.running = True
         self.thread = threading.Thread(target=self._communication_loop)
         self.thread.daemon = True
         self.thread.start()
-        
+
         # Start SSL thread if SSL is enabled
         if self.ssl_enabled and self.ssl_handler:
             self.ssl_thread = threading.Thread(target=self._ssl_communication_loop)
             self.ssl_thread.daemon = True
             self.ssl_thread.start()
-        
+
         return True
 
-    def stop(self):
+    def stop(self) -> None:
         """Stop communication"""
         self.running = False
         if self.socket:
@@ -920,8 +969,8 @@ class CommunicationHandler:
             self.thread.join(timeout=2)
         if self.ssl_thread:
             self.ssl_thread.join(timeout=2)
-    
-    def _communication_loop(self):
+
+    def _communication_loop(self) -> None:
         """Main UDP communication loop"""
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.socket.settimeout(1.0)
@@ -1135,30 +1184,30 @@ class CommunicationHandler:
 
 class DataManager:
     """Manages data storage and export to Downloads folder"""
-    
-    def __init__(self):
+
+    def __init__(self) -> None:
         # Create directories in Downloads
-        self.base_dir = Config.MISSION_DATA_DIR
-        self.telemetry_dir = Config.TELEMETRY_DIR
-        self.images_dir = Config.IMAGES_DIR
-        self.logs_dir = Config.LOGS_DIR
-        
+        self.base_dir: Path = Config.MISSION_DATA_DIR
+        self.telemetry_dir: Path = Config.TELEMETRY_DIR
+        self.images_dir: Path = Config.IMAGES_DIR
+        self.logs_dir: Path = Config.LOGS_DIR
+
         for dir_path in [self.base_dir, self.telemetry_dir, self.images_dir, self.logs_dir]:
             dir_path.mkdir(parents=True, exist_ok=True)
-        
+
         # Current session
-        self.session_id = datetime.now().strftime('%Y%m%d_%H%M%S')
-        self.session_file = self.telemetry_dir / f"session_{self.session_id}.csv"
-        self.session_log = self.logs_dir / f"log_{self.session_id}.txt"
-        
+        self.session_id: str = datetime.now().strftime('%Y%m%d_%H%M%S')
+        self.session_file: Path = self.telemetry_dir / f"session_{self.session_id}.csv"
+        self.session_log: Path = self.logs_dir / f"log_{self.session_id}.txt"
+
         # Images list
-        self.saved_images = []
-        
+        self.saved_images: List[str] = []
+
         # Initialize session
         self._init_session()
-        
+
         # Statistics
-        self.stats = {
+        self.stats: Dict[str, Any] = {
             'total_packets': 0,
             'total_images': 0,
             'total_errors': 0,
@@ -1169,12 +1218,12 @@ class DataManager:
             'max_battery': 0.0,
             'last_packet_time': 0
         }
-    
-    def _init_session(self):
+
+    def _init_session(self) -> None:
         """Initialize session file with headers"""
         try:
             with open(self.session_file, 'w', newline='') as f:
-                writer = csv.writer(f)
+                writer: csv.writer = csv.writer(f)
                 writer.writerow([
                     'Timestamp', 'Sequence', 'MissionTime',
                     'Temp_BME', 'Temp_TMP', 'Pressure', 'Humidity', 'Altitude',
@@ -1187,12 +1236,12 @@ class DataManager:
                 ])
         except Exception as e:
             print(f"Error creating session file: {e}")
-    
-    def save_telemetry(self, telemetry):
+
+    def save_telemetry(self, telemetry: TelemetryData) -> None:
         """Save telemetry to CSV"""
         try:
             with open(self.session_file, 'a', newline='') as f:
-                writer = csv.writer(f)
+                writer: csv.writer = csv.writer(f)
                 writer.writerow([
                     datetime.fromtimestamp(telemetry.timestamp).isoformat(),
                     telemetry.sequence,
